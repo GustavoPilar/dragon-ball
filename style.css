@@ -28,6 +28,7 @@ body { margin: 0; overflow: hidden; }
   width: clamp(110px, 26vw, 200px);
 }
 .ki-label { display: flex; justify-content: space-between; font-size: .8rem; }
+.hud .ki-label { text-shadow: 0 1px #e6f5dd, 1px 0 #e6f5dd, -1px 0 #e6f5dd; }
 meter { width: 100%; height: 14px; accent-color: #db640d; }
 meter::-webkit-meter-bar { border: 0; background: #e5eaf0; }
 meter::-webkit-meter-optimum-value { background: #db640d; }
@@ -201,6 +202,7 @@ button:focus-visible { outline: 3px solid #315c97; outline-offset: 3px; }
   text-align: center;
   margin: 0;
   font-size: .8rem;
+  text-shadow: 0 1px #e6f5dd, 1px 0 #e6f5dd, -1px 0 #e6f5dd;
   pointer-events: none;
 }
 #defeat {

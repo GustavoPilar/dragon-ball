@@ -26,4 +26,6 @@ O Kamehameha custa 40 pontos de ki. A arena congela brevemente enquanto Goku con
 
 Uma Semente dos Deuses cai em um ponto aleatório da arena. Aproxime-se e toque em **Pegar** para guardá-la no inventário. Toque na semente na barra inferior para comê-la e restaurar toda a vida e o ki.
 
+A arena marcial tem um ringue de pedra no centro e terreno aberto nos dois lados. A câmera acompanha Goku pelo mapa e sobe com ele durante o voo. Os Cell Jr. entram pelos lados da área visível e podem persegui-lo no ar.
+
 Em Super Saiyajin, Goku se move 25% mais rápido e causa 50% a mais de dano. A forma consome 8 pontos de ki por segundo e termina quando o ki chega a zero. Segurar Ki carrega a barra na forma base.

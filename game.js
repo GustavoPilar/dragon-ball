@@ -42,6 +42,8 @@ const transformDuration = 1.1;
 const superDrain = 8;
 const superSpeed = 1.25;
 const superDamage = 1.5;
+const world = { width: 4200, ceiling: 1250, center: 2100 };
+const camera = { left: 0, lift: 0 };
 const flightKiMinimum = 10;
 const criticalHealth = 25;
 const attackFrameTime = 0.085;
@@ -62,13 +64,14 @@ const defeatBlinkTime = 0.72;
 let spawnTime = 2.5;
 let spawnInterval = 5;
 let spawnSide = 1;
-const seed = { position: 0.27 + Math.random() * 0.46, altitude: null, delay: 2.8, collected: false };
+const seed = { position: world.center + (Math.random() - 0.5) * 340, altitude: null, delay: 2.8, collected: false };
 let seedsInInventory = 0;
 let itemAction = null;
 const pickupDuration = 1.05;
 const eatDuration = 0.8;
 
 let sprites;
+let landscapeArt;
 let previousTime;
 let x;
 let facing = 1;
@@ -400,14 +403,14 @@ function canUseItem() {
     !itemAction && !attack && !beam && transforming === null;
 }
 
-function canPickUp(width, size) {
+function canPickUp(size) {
   return canUseItem() && !seed.collected && seed.altitude === 0 && airborneHeight <= 8 * size &&
-    Math.abs(x - seed.position * width) <= 48 * size;
+    Math.abs(x - seed.position) <= 48 * size;
 }
 
 pickUp.addEventListener('click', () => {
   const size = Math.min(1.42, canvas.clientHeight * 0.37 / 150);
-  if (!canPickUp(canvas.clientWidth, size)) return;
+  if (!canPickUp(size)) return;
   seed.collected = true;
   itemAction = { type: 'pickup', elapsed: 0 };
   pickUp.hidden = true;
@@ -421,7 +424,7 @@ seedSlot.addEventListener('click', () => {
   lastJumpPress = -Infinity;
 });
 
-function updateSeed(dt, width, floor, size) {
+function updateSeed(dt, floor, size) {
   if (!seed.collected && playerCombat.health) {
     seed.delay -= dt;
     if (seed.delay <= 0) {
@@ -429,7 +432,7 @@ function updateSeed(dt, width, floor, size) {
       seed.altitude = Math.max(0, seed.altitude - 320 * dt);
     }
   }
-  pickUp.hidden = !canPickUp(width, size);
+  pickUp.hidden = !canPickUp(size);
   seedSlot.disabled = !seedsInInventory || !canUseItem();
 }
 
@@ -576,10 +579,10 @@ function applyBeam(width, size) {
 }
 
 function beamOrigin(width, size) {
-  const end = beam.direction > 0 ? width : 0;
+  const end = beam.direction > 0 ? camera.left + width : camera.left;
   const hand = x + beam.direction * 52 * size;
   return {
-    x: Math.max(0, Math.min(width, hand)),
+    x: Math.max(camera.left, Math.min(camera.left + width, hand)),
     altitude: airborneHeight + 89 * size,
     end,
   };
@@ -607,7 +610,7 @@ function drawBeamFocus(width, height, floor, size) {
   shade.addColorStop(0, 'rgba(12, 25, 52, ' + (progress * 0.25) + ')');
   shade.addColorStop(1, 'rgba(12, 25, 52, ' + (progress * 0.62) + ')');
   context.fillStyle = shade;
-  context.fillRect(0, 0, width, height);
+  context.fillRect(camera.left, 0, width, height);
 }
 
 function drawBeamCharge(floor, size) {
@@ -718,8 +721,9 @@ function spawnEnemy(dt, width, height, size) {
   game.append(meter);
   enemies.push({
     meter, health: meter.max, reaction: null, gone: false,
-    x: spawnSide > 0 ? width - 55 * size : 55 * size,
-    altitude: height * 0.12, facing: -spawnSide, attackTime: null, cooldown: 0,
+    x: boundedX(camera.left + (spawnSide > 0 ? width - 55 * size : 55 * size), world.width, 52 * size),
+    altitude: Math.min(world.ceiling, airborneHeight + height * 0.12),
+    facing: -spawnSide, attackTime: null, cooldown: 0,
   });
   spawnSide *= -1;
   spawnTime = spawnInterval;
@@ -840,7 +844,7 @@ function update(dt, width, height, size) {
       if (airborneHeight >= height * 0.18) liftingOff = false;
     }
     const speed = superSaiyan ? superSpeed : 1;
-    airborneHeight = Math.max(height * 0.035, Math.min(height * 0.27,
+    airborneHeight = Math.max(height * 0.035, Math.min(world.ceiling,
       airborneHeight - vertical * height * dt * verticalFlightSpeed * speed));
     x += direction * flightSpeed * dt * speed;
     if (Math.abs(direction) > 0.12) facing = Math.sign(direction);
@@ -904,6 +908,85 @@ function update(dt, width, height, size) {
   return frames[frameIndex];
 }
 
+function drawLandscape(width, height, groundLine) {
+  const sky = context.createLinearGradient(0, 0, 0, height);
+  sky.addColorStop(0, '#75bec6');
+  sky.addColorStop(1, '#d4e8b5');
+  context.fillStyle = sky;
+  context.fillRect(0, 0, width, height);
+
+  // A higher cloud layer remains visible when the ground drops out of view.
+  const cloudY = groundLine + camera.lift * 0.72 - 820;
+  for (let index = -1; index < 14; index++) {
+    const px = Math.round(index * 210 - camera.left * 0.42);
+    const py = Math.round(cloudY + (index % 3) * 49);
+    if (px > width || px + 150 < 0 || py > height || py + 18 < 0) continue;
+    context.fillStyle = 'rgba(238, 255, 232, .37)';
+    context.fillRect(px, py, 141, 4);
+    context.fillRect(px + 22, py - 5, 97, 5);
+    context.fillRect(px + 44, py - 9, 47, 4);
+    context.fillRect(px + 31, py + 4, 63, 3);
+  }
+
+  const artHeight = Math.max(height * 1.23, 470);
+  const artWidth = Math.max(width, artHeight * landscapeArt.width / landscapeArt.height);
+  const pan = camera.left / Math.max(1, world.width - width);
+  const artY = Math.round(groundLine + camera.lift * 0.48 - artHeight * 0.82);
+  if (artY < height) {
+    context.drawImage(landscapeArt, Math.round((width - artWidth) * pan), artY,
+      Math.ceil(artWidth), Math.ceil(artHeight));
+    if (artY > -75) {
+      const blend = context.createLinearGradient(0, artY, 0, artY + 75);
+      const progress = Math.max(0, Math.min(1, artY / height));
+      const color = [117, 190, 198].map((top, index) =>
+        Math.round(top + ([212, 232, 181][index] - top) * progress)).join(', ');
+      blend.addColorStop(0, 'rgb(' + color + ')');
+      blend.addColorStop(1, 'rgba(' + color + ', 0)');
+      context.fillStyle = blend;
+      context.fillRect(0, artY, width, 75);
+    }
+  }
+}
+
+function drawGround(width, height, floor) {
+  if (floor >= height) return;
+  const left = camera.left;
+  const right = left + width;
+  context.fillStyle = '#64513b';
+  context.fillRect(left, floor, width, height - floor);
+  context.fillStyle = '#8b7149';
+  context.fillRect(left, floor + 7, width, 24);
+  context.fillStyle = '#6d8b36';
+  context.fillRect(left, floor, width, 8);
+  context.fillStyle = '#acb951';
+  context.fillRect(left, floor, width, 3);
+  for (let tile = Math.floor(left / 29) * 29; tile < right; tile += 29) {
+    context.fillStyle = '#809b42';
+    context.fillRect(tile + 4, floor - (tile % 7), 3, 8);
+    context.fillRect(tile + 8, floor - 3, 3, 7);
+    context.fillStyle = '#756043';
+    context.fillRect(tile, floor + 12 + tile % 17, 14, 4);
+    context.fillStyle = '#514635';
+    context.fillRect(tile + 8, floor + 42 + tile % 33, 17, 6);
+  }
+
+  const ringLeft = world.center - 315;
+  const ringWidth = 630;
+  if (ringLeft >= right || ringLeft + ringWidth <= left) return;
+  context.fillStyle = '#644e41';
+  context.fillRect(ringLeft, floor + 2, ringWidth, 51);
+  context.fillStyle = '#b68c65';
+  context.fillRect(ringLeft, floor, ringWidth, 27);
+  context.fillStyle = '#ecddad';
+  context.fillRect(ringLeft, floor, ringWidth, 5);
+  for (let tile = ringLeft + 3; tile < ringLeft + ringWidth - 3; tile += 42) {
+    context.fillStyle = '#d7bb88';
+    context.fillRect(tile, floor + 6, 37, 15);
+    context.fillStyle = '#d9ac76';
+    context.fillRect(tile + 8, floor + 31, 34, 7);
+  }
+}
+
 function render(time) {
   requestAnimationFrame(render);
   if (pauseMenu.open || !landscape.matches || document.hidden) return;
@@ -916,8 +999,8 @@ function render(time) {
   }
   const dt = previousTime === undefined ? 0 : Math.min((time - previousTime) / 1000, 0.05);
   previousTime = time;
-  x ??= width / 2;
-  const floor = Math.round(height * 0.71);
+  x ??= world.center;
+  const groundLine = Math.round(height * 0.71);
   const size = Math.min(1.42, height * 0.37 / 150);
   if (transforming !== null) {
     transforming += dt;
@@ -932,35 +1015,39 @@ function render(time) {
     beam.elapsed += dt;
     if (beam.elapsed >= beamDuration) beam = null;
   }
-  const normalFrame = update(dt, width, height, size);
+  const normalFrame = update(dt, world.width, height, size);
+  camera.left = Math.round(Math.max(0, Math.min(Math.max(0, world.width - width), x - width / 2)));
+  camera.lift = Math.round(Math.max(0, airborneHeight - height * 0.21));
+  const floor = groundLine + camera.lift;
   const transformedVisual = superSaiyan || (transforming !== null && transforming >= 0.7);
   const playerFrame = normalFrame && transformedVisual ? superPose(normalFrame) : normalFrame;
   const focusing = beam?.elapsed < 0 || transforming !== null;
   game.classList.toggle('beam-focus', focusing);
   if (!focusing) {
-    updateSeed(dt, width, floor, size);
-    updateBlasts(dt, width, size);
+    updateSeed(dt, groundLine, size);
+    updateBlasts(dt, world.width, size);
     spawnEnemy(dt, width, height, size);
     if (beam) applyBeam(width, size);
   }
   transformButton.hidden = !canTransform();
 
   context.setTransform(density, 0, 0, density, 0, 0);
-  context.clearRect(0, 0, width, height);
-  context.fillStyle = '#e5e9ef';
-  context.fillRect(0, floor, width, 1);
   context.imageSmoothingEnabled = false;
+  drawLandscape(width, height, groundLine);
+  context.translate(-camera.left, 0);
+  drawGround(width, height, floor);
   if (!seed.collected && seed.altitude !== null) {
-    drawSeed(seed.position * width, floor - seed.altitude - 4 * size, size * 0.68);
+    drawSeed(seed.position, floor - seed.altitude - 4 * size, size * 0.68);
   }
   for (const enemy of enemies) {
-    if (!focusing) enemy.frame = updateEnemy(enemy, dt, width, height, size);
+    if (!focusing) enemy.frame = updateEnemy(enemy, dt, world.width, height, size);
     const frame = enemy.frame;
     if (!frame) continue;
     const baseline = floor - enemy.altitude;
     if (enemy.health) {
-      const barY = Math.max(2, baseline - frame.frame.height * frame.scale * size - 13);
-      enemy.meter.style.transform = 'translate(' + Math.round(enemy.x) + 'px, ' + Math.round(barY) + 'px) translateX(-50%)';
+      const barY = baseline - frame.frame.height * frame.scale * size - 13;
+      enemy.meter.hidden = enemy.x < camera.left || enemy.x > camera.left + width || barY < 1 || baseline > height + 80;
+      enemy.meter.style.transform = 'translate(' + Math.round(enemy.x - camera.left) + 'px, ' + Math.round(barY) + 'px) translateX(-50%)';
     }
     drawFighter(frame, enemy.x, baseline, enemy.facing, size);
   }
@@ -971,7 +1058,7 @@ function render(time) {
   if (beam?.elapsed < 0) drawBeamFocus(width, height, floor, size);
   if (transforming !== null) {
     context.fillStyle = 'rgba(22, 16, 36, ' + Math.min(0.55, transforming) + ')';
-    context.fillRect(0, 0, width, height);
+    context.fillRect(camera.left, 0, width, height);
   }
   if (transforming !== null || superSaiyan) drawSuperAura(floor, size, time / 1000, transformedVisual && transforming !== null);
   if (playerFrame) drawFighter(playerFrame, x, floor - airborneHeight, facing, size, flightAngle);
@@ -1047,12 +1134,14 @@ function readOutfit(image, top) {
 
 async function start() {
   try {
-    const [base, charge, combat, damaged, kame, senzu, ssj] = await Promise.all([
+    const [base, charge, combat, damaged, kame, senzu, ssj, arena] = await Promise.all([
       loadImage('assets/goku-base.png'), loadImage('assets/goku-ki.png'), loadImage('assets/combat.png'),
       loadImage('assets/goku-damaged.png'), loadImage('assets/goku-kamehameha.png'),
       loadImage('assets/goku-senzu.png'),
       loadImage('assets/goku-ssj.png'),
+      loadImage('assets/martial-arena.png'),
     ]);
+    landscapeArt = arena;
     const baseColumns = Array.from({ length: 6 }, (_, index) => Math.round(base.width * index / 5));
     const [idle, walk, jump, fly, punch, kick] = Array.from({ length: 6 }, (_, row) =>
       readRow(base, baseColumns, Math.round(base.height * row / 6),
