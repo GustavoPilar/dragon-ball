@@ -8,6 +8,13 @@ const landscape = matchMedia('(orientation: landscape)');
 const buttons = [...document.querySelectorAll('[data-action]')];
 const jumpButton = document.querySelector('[data-action="jump"]');
 const joystick = document.querySelector('#joystick');
+const game = document.querySelector('#game');
+const enemyHud = document.querySelector('#enemy-hud');
+const defeat = document.querySelector('#defeat');
+const healthMeters = {
+  goku: document.querySelector('#goku-health'),
+  enemy: document.querySelector('#enemy-health'),
+};
 
 const keys = new Map([
   ['ArrowLeft', 'left'], ['ArrowRight', 'right'],
@@ -16,12 +23,20 @@ const keys = new Map([
   ['KeyZ', 'punch'], ['KeyX', 'kick'], ['KeyC', 'charge'],
 ]);
 const heldInputs = new Map();
-const moveSpeed = 240;
+const walkSpeed = 320;
+const flightSpeed = 380;
+const verticalFlightSpeed = 1; // Viewport heights per second.
 const chargeSpeed = 40;
 const attackFrameTime = 0.085;
 const doubleTapTime = 350;
 const jumpDuration = 0.65;
 const stick = { pointerId: null, x: 0, y: 0 };
+const playerCombat = { health: 100, reaction: null };
+const enemy = {
+  health: 60, reaction: null, x: null, altitude: 0, facing: -1,
+  attackTime: null, cooldown: 0,
+};
+let spawnTime = 1.5;
 
 let sprites;
 let previousTime;
@@ -50,7 +65,7 @@ async function loadImage(path) {
   return image;
 }
 
-function readRow(image, columns, top, bottom, scale = 1) {
+function readRow(image, columns, top, bottom, scale = 1, combatSheet = false) {
   return columns.slice(0, -1).map((left, index) => {
     const frame = document.createElement('canvas');
     frame.width = columns[index + 1] - left - 6;
@@ -59,16 +74,37 @@ function readRow(image, columns, top, bottom, scale = 1) {
     frameContext.drawImage(image, left + 3, top + 2, frame.width, frame.height,
       0, 0, frame.width, frame.height);
     const pixels = frameContext.getImageData(0, 0, frame.width, frame.height);
+    let minX = frame.width;
+    let minY = frame.height;
+    let maxX = -1;
+    let maxY = -1;
     for (let pixel = 0; pixel < pixels.data.length; pixel += 4) {
       const [red, green, blue] = [pixels.data[pixel], pixels.data[pixel + 1], pixels.data[pixel + 2]];
       // Make the muted navy backdrop transparent while retaining black outlines and blue fabric.
-      if (red >= 7 && red <= 32 && green >= 20 && green <= 49 &&
+      const navy = red >= 7 && red <= 32 && green >= 20 && green <= 49 &&
           blue >= 36 && blue <= 72 && green - red >= 11 &&
-          green - red <= 27 && blue - green >= 13 && blue - green <= 33) {
+          green - red <= 27 && blue - green >= 13 && blue - green <= 33;
+      const magenta = red > 120 && blue > 120 && red - green > 80 && blue - green > 80;
+      if (combatSheet ? magenta : navy) {
         pixels.data[pixel + 3] = 0;
+      } else if (combatSheet && pixels.data[pixel + 3]) {
+        const y = Math.floor(pixel / 4 / frame.width);
+        const x = (pixel / 4) % frame.width;
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x);
+        maxY = Math.max(maxY, y);
       }
     }
     frameContext.putImageData(pixels, 0, 0);
+    if (combatSheet && maxX >= 0) {
+      const trimmed = document.createElement('canvas');
+      trimmed.width = maxX - minX + 1;
+      trimmed.height = maxY - minY + 1;
+      trimmed.getContext('2d').drawImage(frame, minX, minY, trimmed.width, trimmed.height,
+        0, 0, trimmed.width, trimmed.height);
+      return { frame: trimmed, scale };
+    }
     return { frame, scale };
   });
 }
@@ -111,7 +147,7 @@ function resetStick() {
 }
 
 joystick.addEventListener('pointerdown', (event) => {
-  if (event.button !== 0 || stick.pointerId !== null || !sprites || !landscape.matches) return;
+  if (event.button !== 0 || stick.pointerId !== null || !sprites || !landscape.matches || !playerCombat.health) return;
   event.preventDefault();
   stick.pointerId = event.pointerId;
   joystick.setPointerCapture(event.pointerId);
@@ -143,10 +179,10 @@ function triggerJump(now) {
 }
 
 function press(input, action) {
-  if (!landscape.matches || !sprites || heldInputs.has(input)) return;
+  if (!landscape.matches || !sprites || !playerCombat.health || heldInputs.has(input)) return;
   heldInputs.set(input, action);
-  if (action === 'jump') triggerJump(performance.now());
-  if ((action === 'punch' || action === 'kick') && !attack && !active('charge')) {
+  if (action === 'jump' && !playerCombat.reaction) triggerJump(performance.now());
+  if ((action === 'punch' || action === 'kick') && !playerCombat.reaction && !attack && !active('charge')) {
     attack = { name: action, elapsed: 0 };
   }
   syncButtons();
@@ -196,6 +232,13 @@ window.addEventListener('blur', resetInputs);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) resetInputs();
 });
+for (const event of ['contextmenu', 'selectstart']) {
+  game.addEventListener(event, (event) => event.preventDefault());
+}
+// Safari can handle pinch gestures independently of pointer events.
+for (const event of ['gesturestart', 'gesturechange']) {
+  document.addEventListener(event, (event) => event.preventDefault(), { passive: false });
+}
 landscape.addEventListener('change', resetInputs);
 
 fullscreen.hidden = !document.fullscreenEnabled;
@@ -212,7 +255,114 @@ fullscreen.addEventListener('click', async () => {
   }
 });
 
+function damage(target, name, amount, direction, altitude) {
+  target.health = Math.max(0, target.health - amount);
+  const meter = healthMeters[name];
+  meter.value = target.health;
+  target.reaction = { time: 0, direction, altitude };
+  if (name === 'goku') {
+    document.querySelector('#goku-health-value').textContent = target.health + '/' + meter.max;
+    facing = -direction;
+  } else {
+    enemy.facing = -direction;
+  }
+}
+
+function inRange(dx, dy, direction, reach, size) {
+  return dx * direction >= -8 * size && Math.abs(dx) <= reach * size &&
+    Math.abs(dy) <= 49 * size;
+}
+
+function boundedX(position, width, padding) {
+  const edge = Math.min(width / 2, padding);
+  return Math.max(edge, Math.min(width - edge, position));
+}
+
+function react(actor, dt, floorHeight, move) {
+  const reaction = actor.reaction;
+  reaction.time += dt;
+  const duration = actor.health ? 0.32 : 0.85;
+  const progress = Math.min(1, reaction.time / duration);
+  if (progress < 1) move(reaction.direction * (actor.health ? 105 : 160) * dt * (1 - progress));
+  const arc = 4 * progress * (1 - progress);
+  const altitude = actor.health ? reaction.altitude + floorHeight * 0.035 * arc
+    : reaction.altitude * (1 - progress) + floorHeight * 0.18 * arc;
+  if (progress === 1 && actor.health) actor.reaction = null;
+  const frameIndex = actor.health ? (progress < 0.48 ? 0 : 1)
+    : (progress === 1 ? 4 : Math.min(3, Math.floor(progress * 4)));
+  return { altitude, frameIndex, finished: progress === 1 };
+}
+
+function updateEnemy(dt, width, height, size) {
+  if (enemy.x === null) {
+    spawnTime -= dt;
+    if (spawnTime > 0) return;
+    enemy.x = width - 55 * size;
+    enemy.altitude = height * 0.12;
+    enemyHud.hidden = false;
+  }
+  enemy.x = boundedX(enemy.x, width, 52 * size);
+  if (enemy.reaction) {
+    const result = react(enemy, dt, height, (dx) => {
+      enemy.x = boundedX(enemy.x + dx, width, 52 * size);
+    });
+    enemy.altitude = result.altitude;
+    return sprites.enemyHit[result.frameIndex];
+  }
+
+  const dx = x - enemy.x;
+  const dy = airborneHeight - enemy.altitude;
+  enemy.cooldown = Math.max(0, enemy.cooldown - dt);
+  if (!playerCombat.health) {
+    enemy.attackTime = null;
+    return sprites.enemy[0];
+  }
+  if (enemy.attackTime !== null) {
+    const before = enemy.attackTime;
+    enemy.attackTime += dt;
+    if (before < 0.43 && enemy.attackTime >= 0.43 && !playerCombat.reaction &&
+        inRange(dx, dy, enemy.facing, 76, size)) {
+      damage(playerCombat, 'goku', 15, enemy.facing, airborneHeight);
+      attack = null;
+      jumpElapsed = null;
+      lastJumpPress = -Infinity;
+      chargeTime = 0;
+      if (!playerCombat.health) {
+        flying = false;
+        liftingOff = false;
+        jumpButton.setAttribute('aria-pressed', 'false');
+        resetInputs();
+      }
+    }
+    if (enemy.attackTime < 0.43) return sprites.enemy[2];
+    if (enemy.attackTime < 0.55) return sprites.enemy[3];
+    if (enemy.attackTime < 0.72) return sprites.enemy[4];
+    enemy.attackTime = null;
+    enemy.cooldown = 0.55;
+    return sprites.enemy[0];
+  }
+
+  if (Math.abs(dx) > 2) enemy.facing = Math.sign(dx);
+  if (inRange(dx, dy, enemy.facing, 65, size) && !enemy.cooldown) enemy.attackTime = 0;
+  const gap = Math.max(0, Math.abs(dx) - 48 * size);
+  enemy.x += Math.sign(dx) * Math.min(gap, 145 * dt);
+  const altitudeTarget = Math.max(height * 0.018, airborneHeight);
+  const rise = altitudeTarget - enemy.altitude;
+  enemy.altitude += Math.sign(rise) * Math.min(Math.abs(rise), height * 0.47 * dt);
+  return sprites.enemy[gap > 4 || Math.abs(rise) > 8 ? 1 : 0];
+}
+
 function update(dt, width, height, size) {
+  if (playerCombat.reaction) {
+    const result = react(playerCombat, dt, height, (dx) => {
+      x = boundedX(x + dx, width, 120 * size);
+    });
+    airborneHeight = result.altitude;
+    flightAngle = 0;
+    animation = playerCombat.health ? 'hurt' : 'defeated';
+    if (result.finished && !playerCombat.health) defeat.hidden = false;
+    return sprites.gokuHit[result.frameIndex];
+  }
   const { x: horizontal, y: vertical } = movementVector();
   const looking = Math.abs(vertical) > Math.abs(horizontal);
   const direction = !flying && looking ? 0 : horizontal;
@@ -230,8 +380,8 @@ function update(dt, width, height, size) {
       if (airborneHeight >= height * 0.18) liftingOff = false;
     }
     airborneHeight = Math.max(height * 0.035, Math.min(height * 0.27,
-      airborneHeight - vertical * height * dt * 0.65));
-    x += direction * moveSpeed * dt;
+      airborneHeight - vertical * height * dt * verticalFlightSpeed));
+    x += direction * flightSpeed * dt;
     if (Math.abs(direction) > 0.12) facing = Math.sign(direction);
   } else {
     airborneHeight = Math.max(0, airborneHeight - height * 0.8 * dt);
@@ -240,7 +390,15 @@ function update(dt, width, height, size) {
   let frameIndex = 0;
 
   if (attack) {
+    const before = attack.elapsed;
     attack.elapsed += dt;
+    const impact = attackFrameTime * 2;
+    if (before < impact && attack.elapsed >= impact && enemy.x !== null && enemy.health &&
+        inRange(enemy.x - x, enemy.altitude - airborneHeight, facing, attack.name === 'kick' ? 106 : 88, size)) {
+      damage(enemy, 'enemy', attack.name === 'kick' ? 30 : 20, facing, enemy.altitude);
+      enemy.attackTime = null;
+      enemy.cooldown = 0.4;
+    }
     if (attack.elapsed >= sprites[attack.name].length * attackFrameTime) attack = null;
   }
 
@@ -259,7 +417,7 @@ function update(dt, width, height, size) {
   } else {
     if (!flying && direction) {
       facing = Math.sign(direction);
-      x += direction * moveSpeed * dt;
+      x += direction * walkSpeed * dt;
     }
     if (flying) {
       next = direction || vertical ? 'fly' : 'hover';
@@ -277,13 +435,12 @@ function update(dt, width, height, size) {
   animationTime = animation === next ? animationTime + dt : 0;
   animation = next;
   if (next === 'idle' || next === 'walk') {
-    frameIndex = Math.floor(animationTime * (next === 'walk' ? 10 : 4)) % sprites[next].length;
+    frameIndex = Math.floor(animationTime * (next === 'walk' ? 13 : 4)) % sprites[next].length;
   }
-  if (next === 'fly') frameIndex = 2 + Math.floor(animationTime * 8) % 2;
+  if (next === 'fly') frameIndex = 2 + Math.floor(animationTime * 12) % 2;
   if (next === 'hover') frameIndex = Math.floor(animationTime * 4) % 2 === 0 ? 0 : 4;
   flightAngle = next === 'fly' ? Math.atan2(vertical, Math.abs(direction)) : 0;
-  const padding = Math.min(width / 2, 120 * size);
-  x = Math.max(padding, Math.min(width - padding, x));
+  x = boundedX(x, width, 120 * size);
   return sprites[next === 'hover' ? 'fly' : next][frameIndex];
 }
 
@@ -301,22 +458,33 @@ function render(time) {
   previousTime = time;
   x ??= width / 2;
   const floor = Math.round(height * 0.71);
-  const size = Math.min(1.65, height * 0.43 / 150);
-  const { frame, scale } = update(dt, width, height, size);
+  const size = Math.min(1.42, height * 0.37 / 150);
+  const playerFrame = update(dt, width, height, size);
+  const enemyFrame = updateEnemy(dt, width, height, size);
 
   context.setTransform(density, 0, 0, density, 0, 0);
   context.clearRect(0, 0, width, height);
   context.fillStyle = '#e5e9ef';
   context.fillRect(0, floor, width, 1);
   context.imageSmoothingEnabled = false;
+  if (enemyFrame) {
+    const baseline = floor - enemy.altitude;
+    const barY = Math.max(2, baseline - enemyFrame.frame.height * enemyFrame.scale * size - 13);
+    enemyHud.style.transform = 'translate(' + Math.round(enemy.x) + 'px, ' + Math.round(barY) + 'px) translateX(-50%)';
+    drawFighter(enemyFrame, enemy.x, baseline, enemy.facing, size);
+  }
+  drawFighter(playerFrame, x, floor - airborneHeight, facing, size, flightAngle);
+}
+
+function drawFighter({ frame, scale }, position, baseline, direction, size, angle = 0) {
   const spriteWidth = frame.width * scale * size;
   const spriteHeight = frame.height * scale * size;
   context.save();
-  context.translate(Math.round(x), Math.round(floor - airborneHeight));
-  context.scale(facing, 1);
-  if (flightAngle) {
+  context.translate(Math.round(position), Math.round(baseline));
+  context.scale(direction, 1);
+  if (angle) {
     context.translate(0, -spriteHeight * 0.48);
-    context.rotate(flightAngle);
+    context.rotate(angle);
     context.translate(0, spriteHeight * 0.48);
   }
   context.drawImage(frame, Math.round(-spriteWidth / 2), Math.round(-spriteHeight),
@@ -343,12 +511,24 @@ function lookPose({ frame, scale }, angle) {
 
 async function start() {
   try {
-    const [base, charge] = await Promise.all([
-      loadImage('assets/goku-base.png'), loadImage('assets/goku-ki.png'),
+    const [base, charge, combat] = await Promise.all([
+      loadImage('assets/goku-base.png'), loadImage('assets/goku-ki.png'), loadImage('assets/combat.png'),
     ]);
     const idle = readRow(base, baseColumns, 5, 159);
+    const combatColumns = Array.from({ length: 6 }, (_, index) => Math.round(index * combat.width / 5));
+    const combatRows = Array.from({ length: 4 }, (_, index) => Math.round(index * combat.height / 3));
+    const enemyFrames = readRow(combat, combatColumns, combatRows[0], combatRows[1], 1, true);
+    const enemyHit = readRow(combat, combatColumns, combatRows[1], combatRows[2], 1, true);
+    const gokuHit = readRow(combat, combatColumns, combatRows[2], combatRows[3], 1, true);
+    const enemyScale = 108 / enemyFrames[0].frame.height;
+    for (const frame of [...enemyFrames, ...enemyHit]) frame.scale = enemyScale;
+    const gokuScale = 132 / gokuHit[0].frame.height;
+    for (const frame of gokuHit) frame.scale = gokuScale;
     sprites = {
       idle,
+      enemy: enemyFrames,
+      enemyHit,
+      gokuHit,
       lookUp: lookPose(idle[0], -0.24),
       lookDown: lookPose(idle[0], 0.24),
       walk: readRow(base, baseColumns, 159, 298),

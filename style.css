@@ -1,4 +1,10 @@
 * { box-sizing: border-box; }
+html, body {
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
 :root {
   color: #132137;
   background: #fff;
@@ -26,6 +32,22 @@ meter { width: 100%; height: 14px; accent-color: #db640d; }
 meter::-webkit-meter-bar { border: 0; background: #e5eaf0; }
 meter::-webkit-meter-optimum-value { background: #db640d; }
 meter::-moz-meter-bar { background: #db640d; }
+.health-meter::-webkit-meter-optimum-value { background: #29835b; }
+.health-meter::-moz-meter-bar { background: #29835b; }
+#enemy-hud {
+  position: absolute;
+  inset: 0 auto auto 0;
+  z-index: 1;
+  width: clamp(36px, 13dvh, 66px);
+  pointer-events: none;
+}
+#enemy-health {
+  display: block;
+  height: 8px;
+}
+#enemy-health::-webkit-meter-bar { border: 1px solid #384256; border-radius: 2px; }
+#enemy-health::-webkit-meter-optimum-value { background: #d44949; }
+#enemy-health::-moz-meter-bar { background: #d44949; }
 .controls {
   position: absolute;
   inset: auto max(20px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
@@ -102,6 +124,13 @@ button:focus-visible { outline: 3px solid #315c97; outline-offset: 3px; }
   font-size: 1.4rem;
 }
 #status { position: absolute; inset: 42% 16px auto; text-align: center; pointer-events: none; }
+#defeat {
+  position: absolute;
+  inset: 6rem 16px auto;
+  margin: 0;
+  text-align: center;
+  pointer-events: none;
+}
 .orientation { display: none; }
 @media (orientation: portrait) {
   #game { display: none; }
