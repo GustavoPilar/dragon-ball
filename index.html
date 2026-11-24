@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Goku · Treino</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="game.js" defer></script>
+</head>
+<body>
+  <main id="game" aria-label="Treino do Goku">
+    <div class="hud">
+      <div class="ki-label"><label for="ki">KI</label><output id="ki-value" for="ki">0%</output></div>
+      <meter id="ki" min="0" max="100" value="0">0%</meter>
+    </div>
+    <button id="fullscreen" type="button" aria-label="Tela cheia" title="Tela cheia">⛶</button>
+    <canvas id="arena" aria-label="Goku em forma base em um plano branco"></canvas>
+    <p id="status" role="status">Carregando sprites…</p>
+    <div class="controls">
+      <div id="joystick" role="group" aria-label="Joystick de movimento" aria-description="Arraste para mover, olhar para cima ou para baixo, ou controlar o voo. Também funciona com as setas do teclado.">
+        <span class="stick-thumb" aria-hidden="true"></span>
+      </div>
+      <div class="actions" role="group" aria-label="Ações">
+        <button type="button" data-action="punch">Soco</button>
+        <button type="button" data-action="kick">Chute</button>
+        <button type="button" data-action="jump" aria-description="Dois toques rápidos para voar ou pousar" aria-pressed="false">Pular</button>
+        <button type="button" data-action="charge">Ki</button>
+      </div>
+    </div>
+  </main>
+  <section class="orientation" aria-label="Orientação da tela">
+    <div class="phone" aria-hidden="true"></div>
+    <h1>Gire o celular</h1>
+    <p>Jogue com a tela na horizontal.</p>
+  </section>
+</body>
+</html>
