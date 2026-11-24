@@ -76,7 +76,6 @@ let liftingOff = false;
 let flightAngle = 0;
 
 // Cell boundaries in the supplied review sheets, including the label gutter.
-const baseColumns = [223, 463, 697, 932, 1168, 1397];
 const chargeColumns = [363, 725, 1086, 1446, 1807, 2171];
 
 async function loadImage(path) {
@@ -839,7 +838,7 @@ function render(time) {
   context.fillRect(0, floor, width, 1);
   context.imageSmoothingEnabled = false;
   if (!seed.collected && seed.altitude !== null) {
-    drawSeed(seed.position * width, floor - seed.altitude - 7 * size, size * 1.35);
+    drawSeed(seed.position * width, floor - seed.altitude - 4 * size, size * 0.68);
   }
   for (const enemy of enemies) {
     if (!focusing) enemy.frame = updateEnemy(enemy, dt, width, height, size);
@@ -861,7 +860,7 @@ function render(time) {
   if (itemAction?.type === 'pickup' && animation === 'pickup' && itemAction.elapsed >= 0.23) {
     const hover = Math.sin(itemAction.elapsed * 10) * 4 * size;
     const handHeight = playerFrame.frame.height * playerFrame.scale;
-    drawSeed(x - facing * 19 * size, floor - airborneHeight - (handHeight + 15) * size + hover, size * 1.55);
+    drawSeed(x - facing * 19 * size, floor - airborneHeight - (handHeight + 10) * size + hover, size * 0.78);
   }
   if (focusing) drawBeamCharge(floor, size);
   else if (beam) drawBeam(width, floor, size);
@@ -883,13 +882,13 @@ function drawFighter({ frame, scale }, position, baseline, direction, size, angl
   context.restore();
 }
 
-function lookPose({ frame, scale }, angle, neckX = 122, neckY = 53) {
+function lookPose({ frame, scale }, angle, neckX, neckY) {
   const pose = document.createElement('canvas');
   pose.width = frame.width;
   pose.height = frame.height;
   const draw = pose.getContext('2d');
   draw.imageSmoothingEnabled = false;
-  // The first idle frame is cut at the neck so the feet and torso stay planted.
+  // Cut the idle frame at the neck so the feet and torso stay planted.
   const bodyHeight = frame.height - neckY;
   draw.drawImage(frame, 0, neckY, frame.width, bodyHeight, 0, neckY, frame.width, bodyHeight);
   draw.translate(neckX, neckY);
@@ -935,7 +934,12 @@ async function start() {
       loadImage('assets/goku-damaged.png'), loadImage('assets/goku-kamehameha.png'),
       loadImage('assets/goku-senzu.png'),
     ]);
-    const idle = readRow(base, baseColumns, 5, 159);
+    const baseColumns = Array.from({ length: 6 }, (_, index) => Math.round(base.width * index / 5));
+    const [idle, walk, jump, fly, punch, kick] = Array.from({ length: 6 }, (_, row) =>
+      readRow(base, baseColumns, Math.round(base.height * row / 6),
+        Math.round(base.height * (row + 1) / 6), 1, true));
+    const baseScale = 142 / idle[0].frame.height;
+    for (const pose of [...idle, ...walk, ...jump, ...fly, ...punch, ...kick]) pose.scale = baseScale;
     const combatColumns = Array.from({ length: 6 }, (_, index) => Math.round(index * combat.width / 5));
     const combatRows = Array.from({ length: 4 }, (_, index) => Math.round(index * combat.height / 3));
     const enemyFrames = readRow(combat, combatColumns, combatRows[0], combatRows[1], 1, true);
@@ -944,7 +948,6 @@ async function start() {
     const enemyScale = 108 / enemyFrames[0].frame.height;
     for (const frame of [...enemyFrames, ...enemyHit]) frame.scale = enemyScale;
     const gokuScale = 132 / gokuHit[0].frame.height;
-    const punch = readRow(base, baseColumns, 833, 963);
     for (const frame of gokuHit) frame.scale = gokuScale;
     const beamPoses = [0, 1, 2].map((row) => {
       const top = Math.round(kame.height * row / 3);
@@ -972,14 +975,14 @@ async function start() {
       gokuHit,
       torn: { ...readOutfit(damaged, 0), beam: beamPoses[1], item: itemPoses[1] },
       shirtless: { ...readOutfit(damaged, damaged.height / 2), beam: beamPoses[2], item: itemPoses[2] },
-      lookUp: lookPose(idle[0], -0.24),
-      lookDown: lookPose(idle[0], 0.24),
-      walk: readRow(base, baseColumns, 159, 298),
-      jump: readRow(base, baseColumns, 426, 566),
-      fly: readRow(base, baseColumns, 694, 833),
+      lookUp: lookPose(idle[0], -0.24, idle[0].frame.width * 0.62, idle[0].frame.height * 0.29),
+      lookDown: lookPose(idle[0], 0.24, idle[0].frame.width * 0.62, idle[0].frame.height * 0.29),
+      walk,
+      jump,
+      fly,
       punch,
       blast: [punch[0], punch[1], punch[2], punch[2], punch[4]],
-      kick: readRow(base, baseColumns, 963, 1110),
+      kick,
       charge: readRow(charge, chargeColumns, 193, 519, 0.46),
     };
     status.hidden = true;

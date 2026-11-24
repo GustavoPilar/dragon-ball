@@ -136,7 +136,7 @@ button {
   background: #182437;
   color: white;
 }
-#seed-slot svg { width: 65%; }
+#seed-slot svg { width: 36%; }
 #seed-slot:not(.occupied) svg { visibility: hidden; }
 #seed-slot:disabled { cursor: default; }
 #seed-count { position: absolute; bottom: 0; right: 3px; font-size: .65rem; }
