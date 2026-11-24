@@ -29,6 +29,7 @@ const chargeSpeed = 40;
 const blastCost = 10;
 const beamCost = 40;
 const beamDuration = 2;
+const beamChargeDuration = 0.85;
 const flightKiMinimum = 10;
 const criticalHealth = 25;
 const attackFrameTime = 0.085;
@@ -211,28 +212,45 @@ function triggerJump(now) {
 function press(input, action) {
   if (!landscape.matches || !sprites || !playerCombat.health || heldInputs.has(input)) return;
   heldInputs.set(input, action);
+  if (action === 'beam' || action === 'blast') {
+    tryKiAttack(action);
+    syncButtons();
+    return;
+  }
   if (beam) {
     syncButtons();
     return;
   }
-  if (action === 'beam' && !playerCombat.reaction && !attack) {
-    if (ki >= beamCost) {
-      beam = { direction: facing, elapsed: 0, targets: new WeakSet() };
-      addKi(-beamCost);
-      lastJumpPress = -Infinity;
-    } else {
-      showNotice('O Kamehameha custa 40% de ki.');
-    }
-  }
   if (action === 'jump' && !playerCombat.reaction) triggerJump(performance.now());
-  if (action === 'blast' && !playerCombat.reaction && !attack) {
-    if (ki >= blastCost) attack = { name: action, elapsed: 0 };
-    else showNotice('A esfera custa 10% de ki.');
-  }
   if ((action === 'punch' || action === 'kick') && !playerCombat.reaction && !attack && !active('charge')) {
     attack = { name: action, elapsed: 0 };
   }
   syncButtons();
+}
+
+function tryKiAttack(action) {
+  const isBeam = action === 'beam';
+  if (playerCombat.reaction) {
+    showNotice('Espere o Goku se recuperar para disparar.');
+    return;
+  }
+  if (beam || attack) {
+    showNotice('Espere o ataque atual terminar para disparar.');
+    return;
+  }
+  if (ki < (isBeam ? beamCost : blastCost)) {
+    showNotice(isBeam ? 'O Kamehameha custa 40% de ki.' : 'A esfera custa 10% de ki.');
+    return;
+  }
+  combatNotice.hidden = true;
+  noticeTime = 0;
+  if (isBeam) {
+    beam = { direction: facing, elapsed: -beamChargeDuration, targets: new WeakSet() };
+    addKi(-beamCost);
+    lastJumpPress = -Infinity;
+  } else {
+    attack = { name: action, elapsed: 0 };
+  }
 }
 
 function release(input) {
@@ -369,7 +387,7 @@ function updateBlasts(dt, width, size) {
   for (let index = blasts.length - 1; index >= 0; index--) {
     const blast = blasts[index];
     const distance = 640 * dt;
-    const radius = 28 * size;
+    const radius = 31 * size;
     let target;
     let nearest = distance + radius;
     for (const enemy of enemies) {
@@ -389,7 +407,7 @@ function updateBlasts(dt, width, size) {
 
 function drawBlast(blast, floor, size) {
   const y = floor - blast.altitude;
-  const radius = 11 * size;
+  const radius = 14 * size;
   context.fillStyle = '#a4e7ff';
   context.fillRect(blast.x - blast.direction * radius * 2, y - radius / 4,
     blast.direction * radius * 2, radius / 2);
@@ -417,10 +435,10 @@ function applyBeam(width, size) {
 
 function beamOrigin(width, size) {
   const end = beam.direction > 0 ? width : 0;
-  const hand = x + beam.direction * 49 * size;
+  const hand = x + beam.direction * 52 * size;
   return {
     x: Math.max(0, Math.min(width, hand)),
-    altitude: airborneHeight + 95 * size,
+    altitude: airborneHeight + 89 * size,
     end,
   };
 }
@@ -436,6 +454,38 @@ function drawBeam(width, floor, size) {
     context.fillRect(origin.x, y - band, origin.end - origin.x, band * 2);
     context.beginPath();
     context.arc(origin.x, y, band, 0, Math.PI * 2);
+    context.fill();
+  }
+}
+
+function drawBeamFocus(width, height, floor, size) {
+  const progress = 1 + beam.elapsed / beamChargeDuration;
+  const handY = floor - airborneHeight - 70 * size;
+  const shade = context.createRadialGradient(x, handY, 25 * size, x, handY, 220 * size);
+  shade.addColorStop(0, 'rgba(12, 25, 52, ' + (progress * 0.25) + ')');
+  shade.addColorStop(1, 'rgba(12, 25, 52, ' + (progress * 0.62) + ')');
+  context.fillStyle = shade;
+  context.fillRect(0, 0, width, height);
+}
+
+function drawBeamCharge(floor, size) {
+  const progress = 1 + beam.elapsed / beamChargeDuration;
+  const handX = x - beam.direction * 30 * size;
+  const handY = floor - airborneHeight - 70 * size;
+  for (let index = 0; index < 16; index++) {
+    const travel = (progress * 2.4 + index / 16) % 1;
+    const angle = index * 2.4 + travel * 0.7;
+    const distance = (1 - travel) * 110 * size;
+    const px = handX + Math.cos(angle) * distance;
+    const py = handY + Math.sin(angle) * distance * 0.72;
+    context.fillStyle = index % 2 ? '#75dcff' : '#faffff';
+    context.fillRect(Math.round(px), Math.round(py), (2 + 2 * travel) * size, (2 + 2 * travel) * size);
+  }
+  const radius = (3 + progress * 10) * size;
+  for (const [scale, color] of [[1, '#138bff'], [0.7, '#75dcff'], [0.45, '#faffff']]) {
+    context.fillStyle = color;
+    context.beginPath();
+    context.arc(handX, handY, radius * scale, 0, Math.PI * 2);
     context.fill();
   }
 }
@@ -550,6 +600,12 @@ function update(dt, width, height, size) {
   }
   const outfit = playerCombat.health <= criticalHealth ? sprites.shirtless
     : playerCombat.health <= 60 ? sprites.torn : null;
+  if (beam?.elapsed < 0) {
+    facing = beam.direction;
+    flightAngle = 0;
+    animation = 'beamCharge';
+    return (outfit?.beam ?? sprites.beam)[0];
+  }
   if (playerCombat.reaction) {
     const result = react(playerCombat, dt, height, (dx) => {
       x = boundedX(x + dx, width, 120 * size);
@@ -587,7 +643,7 @@ function update(dt, width, height, size) {
     facing = beam.direction;
     flightAngle = 0;
     animation = 'beam';
-    return (outfit?.blast ?? sprites.blast)[2];
+    return (outfit?.beam ?? sprites.beam)[1];
   }
   let next = 'idle';
   let frameIndex = 0;
@@ -660,9 +716,13 @@ function render(time) {
     if (beam.elapsed >= beamDuration) beam = null;
   }
   const playerFrame = update(dt, width, height, size);
-  updateBlasts(dt, width, size);
-  spawnEnemy(dt, width, height, size);
-  if (beam) applyBeam(width, size);
+  const focusing = beam?.elapsed < 0;
+  game.classList.toggle('beam-focus', focusing);
+  if (!focusing) {
+    updateBlasts(dt, width, size);
+    spawnEnemy(dt, width, height, size);
+    if (beam) applyBeam(width, size);
+  }
 
   context.setTransform(density, 0, 0, density, 0, 0);
   context.clearRect(0, 0, width, height);
@@ -670,7 +730,8 @@ function render(time) {
   context.fillRect(0, floor, width, 1);
   context.imageSmoothingEnabled = false;
   for (const enemy of enemies) {
-    const frame = updateEnemy(enemy, dt, width, height, size);
+    if (!focusing) enemy.frame = updateEnemy(enemy, dt, width, height, size);
+    const frame = enemy.frame;
     if (!frame) continue;
     const baseline = floor - enemy.altitude;
     if (enemy.health) {
@@ -682,9 +743,11 @@ function render(time) {
   for (let index = enemies.length - 1; index >= 0; index--) {
     if (enemies[index].gone) enemies.splice(index, 1);
   }
-  if (playerFrame) drawFighter(playerFrame, x, floor - airborneHeight, facing, size, flightAngle);
   for (const blast of blasts) drawBlast(blast, floor, size);
-  if (beam) drawBeam(width, floor, size);
+  if (focusing) drawBeamFocus(width, height, floor, size);
+  if (playerFrame) drawFighter(playerFrame, x, floor - airborneHeight, facing, size, flightAngle);
+  if (focusing) drawBeamCharge(floor, size);
+  else if (beam) drawBeam(width, floor, size);
 }
 
 function drawFighter({ frame, scale }, position, baseline, direction, size, angle = 0) {
@@ -750,9 +813,9 @@ function readOutfit(image, top) {
 
 async function start() {
   try {
-    const [base, charge, combat, damaged] = await Promise.all([
+    const [base, charge, combat, damaged, kame] = await Promise.all([
       loadImage('assets/goku-base.png'), loadImage('assets/goku-ki.png'), loadImage('assets/combat.png'),
-      loadImage('assets/goku-damaged.png'),
+      loadImage('assets/goku-damaged.png'), loadImage('assets/goku-kamehameha.png'),
     ]);
     const idle = readRow(base, baseColumns, 5, 159);
     const combatColumns = Array.from({ length: 6 }, (_, index) => Math.round(index * combat.width / 5));
@@ -765,13 +828,22 @@ async function start() {
     const gokuScale = 132 / gokuHit[0].frame.height;
     const punch = readRow(base, baseColumns, 833, 963);
     for (const frame of gokuHit) frame.scale = gokuScale;
+    const beamPoses = [0, 1, 2].map((row) => {
+      const top = Math.round(kame.height * row / 3);
+      const bottom = Math.round(kame.height * (row + 1) / 3);
+      const frames = readRow(kame, [0, Math.round(kame.width / 2), kame.width], top, bottom, 1, true);
+      const scale = 142 / frames[0].frame.height;
+      for (const pose of frames) pose.scale = scale;
+      return frames;
+    });
     sprites = {
       idle,
+      beam: beamPoses[0],
       enemy: enemyFrames,
       enemyHit,
       gokuHit,
-      torn: readOutfit(damaged, 0),
-      shirtless: readOutfit(damaged, damaged.height / 2),
+      torn: { ...readOutfit(damaged, 0), beam: beamPoses[1] },
+      shirtless: { ...readOutfit(damaged, damaged.height / 2), beam: beamPoses[2] },
       lookUp: lookPose(idle[0], -0.24),
       lookDown: lookPose(idle[0], 0.24),
       walk: readRow(base, baseColumns, 159, 298),

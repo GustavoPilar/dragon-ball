@@ -21,4 +21,4 @@ Os Cell Jr. aparecem alternadamente pelos dois lados, em intervalos cada vez men
 
 Cada esfera custa 10 pontos de ki. Goku precisa de pelo menos 10% de ki e mais de 25 de vida para voar. O voo não consome ki. Aos 60 pontos de vida, o uniforme se rasga. Aos 25, ele fica sem camisa.
 
-O Kamehameha custa 40 pontos de ki, dura dois segundos e causa 75 de dano uma vez por inimigo na trajetória.
+O Kamehameha custa 40 pontos de ki. A arena congela brevemente enquanto Goku concentra energia nas mãos. Depois, o feixe dura dois segundos e causa 75 de dano uma vez por inimigo na trajetória.

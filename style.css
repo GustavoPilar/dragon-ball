@@ -46,6 +46,7 @@ meter::-moz-meter-bar { background: #db640d; }
 .enemy-health::-webkit-meter-bar { border: 1px solid #384256; border-radius: 2px; }
 .enemy-health::-webkit-meter-optimum-value { background: #d44949; }
 .enemy-health::-moz-meter-bar { background: #d44949; }
+.beam-focus .enemy-health { opacity: .45; }
 .controls {
   position: absolute;
   inset: auto max(20px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
