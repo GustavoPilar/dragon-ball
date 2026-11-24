@@ -19,6 +19,7 @@ const enemyHealthTemplate = document.querySelector('#enemy-health-template');
 const defeat = document.querySelector('#defeat');
 const gokuHealth = document.querySelector('#goku-health');
 const combatNotice = document.querySelector('#combat-notice');
+const transformButton = document.querySelector('#transform');
 
 const keys = new Map([
   ['ArrowLeft', 'left'], ['ArrowRight', 'right'],
@@ -26,6 +27,7 @@ const keys = new Map([
   ['Space', 'jump'],
   ['KeyZ', 'punch'], ['KeyX', 'kick'], ['KeyC', 'charge'], ['KeyV', 'blast'],
   ['KeyB', 'beam'],
+  ['KeyT', 'transform'],
 ]);
 const heldInputs = new Map();
 const walkSpeed = 320;
@@ -36,6 +38,10 @@ const blastCost = 10;
 const beamCost = 40;
 const beamDuration = 2;
 const beamChargeDuration = 0.85;
+const transformDuration = 1.1;
+const superDrain = 8;
+const superSpeed = 1.25;
+const superDamage = 1.5;
 const flightKiMinimum = 10;
 const criticalHealth = 25;
 const attackFrameTime = 0.085;
@@ -46,6 +52,9 @@ const playerCombat = { health: 100, reaction: null };
 const enemies = [];
 const blasts = [];
 let beam = null;
+let transforming = null;
+let superSaiyan = false;
+const goldenFrames = new WeakMap();
 let noticeTime = 0;
 const maxEnemies = 6;
 const defeatFallTime = 0.85;
@@ -222,7 +231,27 @@ function triggerJump(now) {
 function press(input, action) {
   if (pauseMenu.open || !landscape.matches || !sprites || !playerCombat.health || heldInputs.has(input)) return;
   heldInputs.set(input, action);
-  if (itemAction) return;
+  if (itemAction || transforming !== null) return;
+  if (action === 'transform') {
+    if (canTransform()) {
+      transforming = 0;
+      transformButton.hidden = true;
+      lastJumpPress = -Infinity;
+      chargeTime = 0;
+      combatNotice.hidden = true;
+      noticeTime = 0;
+      for (const [key, held] of heldInputs) {
+        if (held === 'charge') heldInputs.delete(key);
+      }
+      syncButtons();
+    }
+    return;
+  }
+  if (superSaiyan && action === 'charge') {
+    heldInputs.delete(input);
+    showNotice('O ki diminui enquanto Goku está em Super Saiyajin.');
+    return;
+  }
   if (action === 'beam' || action === 'blast') {
     tryKiAttack(action);
     syncButtons();
@@ -233,7 +262,8 @@ function press(input, action) {
     return;
   }
   if (action === 'jump' && !playerCombat.reaction) triggerJump(performance.now());
-  if ((action === 'punch' || action === 'kick') && !playerCombat.reaction && !attack && !active('charge')) {
+  if ((action === 'punch' || action === 'kick') && !playerCombat.reaction && !attack &&
+      (superSaiyan || !active('charge'))) {
     attack = { name: action, elapsed: 0 };
   }
   syncButtons();
@@ -256,7 +286,7 @@ function tryKiAttack(action) {
   combatNotice.hidden = true;
   noticeTime = 0;
   if (isBeam) {
-    beam = { direction: facing, elapsed: -beamChargeDuration, targets: new WeakSet() };
+    beam = { direction: facing, elapsed: -beamChargeDuration, damage: attackDamage(75), targets: new WeakSet() };
     addKi(-beamCost);
     lastJumpPress = -Infinity;
   } else {
@@ -348,7 +378,16 @@ function addKi(amount) {
     kiValue.textContent = meter.value + '%';
   }
   ki = next;
+  if (ki === 0) superSaiyan = false;
   enforceFlightRestriction();
+}
+
+function canTransform() {
+  return ki === 100 && !superSaiyan && canUseItem();
+}
+
+function attackDamage(baseDamage) {
+  return Math.round(baseDamage * (superSaiyan ? superDamage : 1));
 }
 
 function updateHealthMeter() {
@@ -358,7 +397,7 @@ function updateHealthMeter() {
 
 function canUseItem() {
   return landscape.matches && !pauseMenu.open && playerCombat.health && !playerCombat.reaction &&
-    !itemAction && !attack && !beam;
+    !itemAction && !attack && !beam && transforming === null;
 }
 
 function canPickUp(width, size) {
@@ -453,7 +492,6 @@ function damage(target, amount, direction, altitude) {
     target.facing = -direction;
     if (!target.health) {
       target.meter.remove();
-      addKi(20);
     }
   }
 }
@@ -466,8 +504,9 @@ function inRange(dx, dy, direction, reach, size) {
 function resolveAttack(name, size) {
   if (name === 'blast') {
     if (ki < blastCost) return;
+    const amount = attackDamage(35);
     addKi(-blastCost);
-    blasts.push({ x: x + facing * 49 * size, altitude: airborneHeight + 96 * size, direction: facing });
+    blasts.push({ x: x + facing * 49 * size, altitude: airborneHeight + 96 * size, direction: facing, damage: amount });
     return;
   }
   const isKick = name === 'kick';
@@ -475,7 +514,8 @@ function resolveAttack(name, size) {
     const dx = enemy.x - x;
     if (!enemy.health || dx * facing < 0 ||
         !inRange(dx, enemy.altitude - airborneHeight, facing, isKick ? 106 : 88, size)) continue;
-    hitEnemy(enemy, isKick ? 30 : 20, facing);
+    hitEnemy(enemy, attackDamage(isKick ? 30 : 20), facing);
+    if (!enemy.health) addKi(20);
   }
 }
 
@@ -502,7 +542,7 @@ function updateBlasts(dt, width, size) {
       }
     }
     blast.x += blast.direction * distance;
-    if (target) hitEnemy(target, 35, blast.direction);
+    if (target) hitEnemy(target, blast.damage, blast.direction);
     if (target || blast.x < -radius || blast.x > width + radius) blasts.splice(index, 1);
   }
 }
@@ -531,7 +571,7 @@ function applyBeam(width, size) {
         ahead < -32 * size || ahead > range ||
         altitude < -5 * size || altitude > 125 * size) continue;
     beam.targets.add(enemy);
-    hitEnemy(enemy, 75, beam.direction);
+    hitEnemy(enemy, beam.damage, beam.direction);
   }
 }
 
@@ -590,6 +630,60 @@ function drawBeamCharge(floor, size) {
     context.arc(handX, handY, radius * scale, 0, Math.PI * 2);
     context.fill();
   }
+}
+
+function drawSuperAura(floor, size, time, burst) {
+  const ground = floor - airborneHeight;
+  const spread = burst ? 1.5 : 1;
+  const glow = context.createRadialGradient(x, ground - 70 * size, 6 * size,
+    x, ground - 70 * size, 100 * size * spread);
+  glow.addColorStop(0, burst ? 'rgba(255, 218, 73, .72)' : 'rgba(255, 218, 73, .32)');
+  glow.addColorStop(1, 'rgba(255, 218, 73, 0)');
+  context.fillStyle = glow;
+  context.fillRect(x - 100 * size * spread, ground - 170 * size * spread,
+    200 * size * spread, 190 * size * spread);
+  context.fillStyle = burst ? '#ffd13b' : '#ffe482';
+  for (let index = 0; index < 15; index++) {
+    const rise = (time * 2.6 + index / 15) % 1;
+    const side = index % 2 ? 1 : -1;
+    const px = x + side * (26 + (index % 5) * 7 + rise * 13) * size * spread;
+    const py = ground - rise * 157 * size;
+    context.fillRect(Math.round(px), Math.round(py), 2 * size, (5 + rise * 12) * size);
+  }
+}
+
+function superPose(pose) {
+  const cached = goldenFrames.get(pose);
+  if (cached) return cached;
+  const frame = document.createElement('canvas');
+  frame.width = pose.frame.width;
+  frame.height = pose.frame.height;
+  const draw = frame.getContext('2d');
+  draw.drawImage(pose.frame, 0, 0);
+  const pixels = draw.getImageData(0, 0, frame.width, frame.height);
+  const data = pixels.data;
+  const original = data.slice();
+  // Keep the original pose and clothes when the SSJ sheet has no equivalent frame.
+  const headHeight = animation === 'fly' ? 0.54 : animation === 'pickup' ? 0.44 : 0.32;
+  const left = animation === 'fly' ? 0.48 : animation === 'pickup' ? 0.27 : 0;
+  for (let y = 0; y < frame.height * headHeight; y++) {
+    for (let x = Math.floor(frame.width * left); x < frame.width; x++) {
+      const i = (y * frame.width + x) * 4;
+      const light = Math.max(original[i], original[i + 1], original[i + 2]);
+      if (!original[i + 3] || light > 96 ||
+          Math.max(original[i + 1], original[i + 2]) > original[i] + 18) continue;
+      if (light < 13 && (x === 0 || y === 0 || x === frame.width - 1 ||
+          !original[i - 1] || !original[i + 7] ||
+          !original[i + 3 - frame.width * 4] || !original[i + 3 + frame.width * 4])) continue;
+      data[i] = Math.min(255, 208 + light * 2);
+      data[i + 1] = Math.min(248, 145 + light * 1.7);
+      data[i + 2] = 28 + light * 1.6;
+    }
+  }
+  draw.putImageData(pixels, 0, 0);
+  const result = { frame, scale: pose.scale };
+  goldenFrames.set(pose, result);
+  return result;
 }
 
 function boundedX(position, width, padding) {
@@ -664,6 +758,7 @@ function updateEnemy(enemy, dt, width, height, size) {
         setFlying(false);
         blasts.length = 0;
         beam = null;
+        superSaiyan = false;
         itemAction = null;
         combatNotice.hidden = true;
         resetInputs();
@@ -703,6 +798,11 @@ function update(dt, width, height, size) {
   }
   const outfit = playerCombat.health <= criticalHealth ? sprites.shirtless
     : playerCombat.health <= 60 ? sprites.torn : null;
+  if (transforming !== null) {
+    animation = 'transform';
+    flightAngle = 0;
+    return (outfit?.charge ?? sprites.charge)[transforming < 0.3 ? 0 : 2];
+  }
   if (beam?.elapsed < 0) {
     facing = beam.direction;
     flightAngle = 0;
@@ -739,9 +839,10 @@ function update(dt, width, height, size) {
       airborneHeight = Math.min(height * 0.18, airborneHeight + height * dt * 0.8);
       if (airborneHeight >= height * 0.18) liftingOff = false;
     }
+    const speed = superSaiyan ? superSpeed : 1;
     airborneHeight = Math.max(height * 0.035, Math.min(height * 0.27,
-      airborneHeight - vertical * height * dt * verticalFlightSpeed));
-    x += direction * flightSpeed * dt;
+      airborneHeight - vertical * height * dt * verticalFlightSpeed * speed));
+    x += direction * flightSpeed * dt * speed;
     if (Math.abs(direction) > 0.12) facing = Math.sign(direction);
   } else {
     airborneHeight = Math.max(0, airborneHeight - height * 0.8 * dt);
@@ -766,7 +867,7 @@ function update(dt, width, height, size) {
   if (attack) {
     next = attack.name;
     frameIndex = Math.floor(attack.elapsed / attackFrameTime);
-  } else if (active('charge')) {
+  } else if (active('charge') && !superSaiyan) {
     next = 'charge';
     chargeTime += dt;
     addKi(chargeSpeed * dt);
@@ -775,7 +876,7 @@ function update(dt, width, height, size) {
   } else {
     if (!flying && direction) {
       facing = Math.sign(direction);
-      x += direction * walkSpeed * dt;
+      x += direction * walkSpeed * dt * (superSaiyan ? superSpeed : 1);
     }
     if (flying) {
       next = direction || vertical ? 'fly' : 'hover';
@@ -818,12 +919,23 @@ function render(time) {
   x ??= width / 2;
   const floor = Math.round(height * 0.71);
   const size = Math.min(1.42, height * 0.37 / 150);
+  if (transforming !== null) {
+    transforming += dt;
+    if (transforming >= transformDuration) {
+      transforming = null;
+      superSaiyan = true;
+    }
+  } else if (superSaiyan) {
+    addKi(-superDrain * dt);
+  }
   if (beam) {
     beam.elapsed += dt;
     if (beam.elapsed >= beamDuration) beam = null;
   }
-  const playerFrame = update(dt, width, height, size);
-  const focusing = beam?.elapsed < 0;
+  const normalFrame = update(dt, width, height, size);
+  const transformedVisual = superSaiyan || (transforming !== null && transforming >= 0.7);
+  const playerFrame = normalFrame && transformedVisual ? superPose(normalFrame) : normalFrame;
+  const focusing = beam?.elapsed < 0 || transforming !== null;
   game.classList.toggle('beam-focus', focusing);
   if (!focusing) {
     updateSeed(dt, width, floor, size);
@@ -831,6 +943,7 @@ function render(time) {
     spawnEnemy(dt, width, height, size);
     if (beam) applyBeam(width, size);
   }
+  transformButton.hidden = !canTransform();
 
   context.setTransform(density, 0, 0, density, 0, 0);
   context.clearRect(0, 0, width, height);
@@ -855,14 +968,19 @@ function render(time) {
     if (enemies[index].gone) enemies.splice(index, 1);
   }
   for (const blast of blasts) drawBlast(blast, floor, size);
-  if (focusing) drawBeamFocus(width, height, floor, size);
+  if (beam?.elapsed < 0) drawBeamFocus(width, height, floor, size);
+  if (transforming !== null) {
+    context.fillStyle = 'rgba(22, 16, 36, ' + Math.min(0.55, transforming) + ')';
+    context.fillRect(0, 0, width, height);
+  }
+  if (transforming !== null || superSaiyan) drawSuperAura(floor, size, time / 1000, transformedVisual && transforming !== null);
   if (playerFrame) drawFighter(playerFrame, x, floor - airborneHeight, facing, size, flightAngle);
   if (itemAction?.type === 'pickup' && animation === 'pickup' && itemAction.elapsed >= 0.23) {
     const hover = Math.sin(itemAction.elapsed * 10) * 4 * size;
     const handHeight = playerFrame.frame.height * playerFrame.scale;
     drawSeed(x - facing * 19 * size, floor - airborneHeight - (handHeight + 10) * size + hover, size * 0.78);
   }
-  if (focusing) drawBeamCharge(floor, size);
+  if (beam?.elapsed < 0) drawBeamCharge(floor, size);
   else if (beam) drawBeam(width, floor, size);
 }
 
@@ -929,10 +1047,11 @@ function readOutfit(image, top) {
 
 async function start() {
   try {
-    const [base, charge, combat, damaged, kame, senzu] = await Promise.all([
+    const [base, charge, combat, damaged, kame, senzu, ssj] = await Promise.all([
       loadImage('assets/goku-base.png'), loadImage('assets/goku-ki.png'), loadImage('assets/combat.png'),
       loadImage('assets/goku-damaged.png'), loadImage('assets/goku-kamehameha.png'),
       loadImage('assets/goku-senzu.png'),
+      loadImage('assets/goku-ssj.png'),
     ]);
     const baseColumns = Array.from({ length: 6 }, (_, index) => Math.round(base.width * index / 5));
     const [idle, walk, jump, fly, punch, kick] = Array.from({ length: 6 }, (_, row) =>
@@ -985,6 +1104,16 @@ async function start() {
       kick,
       charge: readRow(charge, chargeColumns, 193, 519, 0.46),
     };
+    const ssjColumns = [223, 461, 696, 932, 1168, 1397];
+    const ssjRows = [
+      ['idle', 5, 142, 1.02], ['walk', 142, 262, 1.16], ['jump', 370, 488, 1.15],
+      ['fly', 593, 703, 1.22], ['punch', 703, 809, 1.16], ['kick', 809, 931, 1.1],
+      ['charge', 931, 1111, 0.84],
+    ];
+    for (const [action, top, bottom, scale] of ssjRows) {
+      const frames = readRow(ssj, ssjColumns, top, bottom, scale);
+      sprites[action].forEach((pose, index) => goldenFrames.set(pose, frames[index]));
+    }
     status.hidden = true;
     requestAnimationFrame(render);
   } catch (error) {
