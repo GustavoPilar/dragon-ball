@@ -4,6 +4,12 @@ const meter = document.querySelector('#ki');
 const kiValue = document.querySelector('#ki-value');
 const status = document.querySelector('#status');
 const fullscreen = document.querySelector('#fullscreen');
+const pause = document.querySelector('#pause');
+const pauseMenu = document.querySelector('#pause-menu');
+const restart = document.querySelector('#restart');
+const pickUp = document.querySelector('#pick-up');
+const seedSlot = document.querySelector('#seed-slot');
+const seedCount = document.querySelector('#seed-count');
 const landscape = matchMedia('(orientation: landscape)');
 const buttons = [...document.querySelectorAll('[data-action]')];
 const jumpButton = document.querySelector('[data-action="jump"]');
@@ -41,12 +47,17 @@ const enemies = [];
 const blasts = [];
 let beam = null;
 let noticeTime = 0;
-const maxEnemies = 12;
+const maxEnemies = 6;
 const defeatFallTime = 0.85;
 const defeatBlinkTime = 0.72;
-let spawnTime = 1.5;
-let spawnInterval = 3;
+let spawnTime = 2.5;
+let spawnInterval = 5;
 let spawnSide = 1;
+const seed = { position: 0.27 + Math.random() * 0.46, altitude: null, delay: 2.8, collected: false };
+let seedsInInventory = 0;
+let itemAction = null;
+const pickupDuration = 1.05;
+const eatDuration = 0.8;
 
 let sprites;
 let previousTime;
@@ -210,8 +221,9 @@ function triggerJump(now) {
 }
 
 function press(input, action) {
-  if (!landscape.matches || !sprites || !playerCombat.health || heldInputs.has(input)) return;
+  if (pauseMenu.open || !landscape.matches || !sprites || !playerCombat.health || heldInputs.has(input)) return;
   heldInputs.set(input, action);
+  if (itemAction) return;
   if (action === 'beam' || action === 'blast') {
     tryKiAttack(action);
     syncButtons();
@@ -306,6 +318,16 @@ for (const event of ['gesturestart', 'gesturechange']) {
 }
 landscape.addEventListener('change', resetInputs);
 
+pause.addEventListener('click', () => {
+  pauseMenu.showModal();
+  game.classList.add('paused');
+  heldInputs.clear();
+  resetStick();
+  syncButtons();
+});
+pauseMenu.addEventListener('cancel', (event) => event.preventDefault());
+restart.addEventListener('click', () => location.reload());
+
 fullscreen.hidden = !document.fullscreenEnabled;
 fullscreen.addEventListener('click', async () => {
   try {
@@ -330,6 +352,88 @@ function addKi(amount) {
   enforceFlightRestriction();
 }
 
+function updateHealthMeter() {
+  gokuHealth.value = playerCombat.health;
+  document.querySelector('#goku-health-value').textContent = playerCombat.health + '/' + gokuHealth.max;
+}
+
+function canUseItem() {
+  return landscape.matches && !pauseMenu.open && playerCombat.health && !playerCombat.reaction &&
+    !itemAction && !attack && !beam;
+}
+
+function canPickUp(width, size) {
+  return canUseItem() && !seed.collected && seed.altitude === 0 && airborneHeight <= 8 * size &&
+    Math.abs(x - seed.position * width) <= 48 * size;
+}
+
+pickUp.addEventListener('click', () => {
+  const size = Math.min(1.42, canvas.clientHeight * 0.37 / 150);
+  if (!canPickUp(canvas.clientWidth, size)) return;
+  seed.collected = true;
+  itemAction = { type: 'pickup', elapsed: 0 };
+  pickUp.hidden = true;
+  lastJumpPress = -Infinity;
+});
+
+seedSlot.addEventListener('click', () => {
+  if (!seedsInInventory || !canUseItem()) return;
+  itemAction = { type: 'eat', elapsed: 0 };
+  seedSlot.disabled = true;
+  lastJumpPress = -Infinity;
+});
+
+function updateSeed(dt, width, floor, size) {
+  if (!seed.collected && playerCombat.health) {
+    seed.delay -= dt;
+    if (seed.delay <= 0) {
+      seed.altitude ??= floor + 20;
+      seed.altitude = Math.max(0, seed.altitude - 320 * dt);
+    }
+  }
+  pickUp.hidden = !canPickUp(width, size);
+  seedSlot.disabled = !seedsInInventory || !canUseItem();
+}
+
+function drawSeed(position, y, scale) {
+  context.save();
+  context.translate(Math.round(position), Math.round(y));
+  context.scale(scale, scale);
+  context.fillStyle = '#153d2c';
+  context.fillRect(-6, -3, 12, 7);
+  context.fillRect(-2, -7, 9, 10);
+  context.fillRect(-5, 4, 8, 2);
+  context.fillStyle = '#4cba63';
+  context.fillRect(-4, -2, 8, 6);
+  context.fillRect(0, -5, 5, 7);
+  context.fillStyle = '#b7eb77';
+  context.fillRect(-3, -1, 6, 2);
+  context.fillRect(1, -4, 3, 3);
+  context.restore();
+}
+
+function updateItemAction(dt, frames) {
+  itemAction.elapsed += dt;
+  const picking = itemAction.type === 'pickup';
+  const finish = picking ? pickupDuration : eatDuration;
+  if (itemAction.elapsed >= finish) {
+    if (picking) seedsInInventory++;
+    else {
+      seedsInInventory--;
+      playerCombat.health = gokuHealth.max;
+      updateHealthMeter();
+      addKi(100);
+    }
+    seedSlot.classList.toggle('occupied', seedsInInventory > 0);
+    seedCount.textContent = seedsInInventory || '';
+    itemAction = null;
+    return null;
+  }
+  animation = itemAction.type;
+  flightAngle = 0;
+  return frames[(picking ? 0 : 2) + Number(itemAction.elapsed >= (picking ? 0.23 : 0.32))];
+}
+
 function enforceFlightRestriction() {
   if (!flying) return;
   const restriction = flightRestriction();
@@ -342,8 +446,7 @@ function damage(target, amount, direction, altitude) {
   target.health = Math.max(0, target.health - amount);
   target.reaction = { time: 0, direction, altitude };
   if (target === playerCombat) {
-    gokuHealth.value = target.health;
-    document.querySelector('#goku-health-value').textContent = target.health + '/' + gokuHealth.max;
+    updateHealthMeter();
     facing = -direction;
     enforceFlightRestriction();
   } else {
@@ -527,7 +630,7 @@ function spawnEnemy(dt, width, height, size) {
   });
   spawnSide *= -1;
   spawnTime = spawnInterval;
-  spawnInterval = Math.max(0.75, spawnInterval * 0.86);
+  spawnInterval = Math.max(2.4, spawnInterval * 0.9);
 }
 
 function updateEnemy(enemy, dt, width, height, size) {
@@ -562,6 +665,7 @@ function updateEnemy(enemy, dt, width, height, size) {
         setFlying(false);
         blasts.length = 0;
         beam = null;
+        itemAction = null;
         combatNotice.hidden = true;
         resetInputs();
       }
@@ -615,6 +719,10 @@ function update(dt, width, height, size) {
     animation = playerCombat.health ? 'hurt' : 'defeated';
     if (result.finished) defeat.hidden = false;
     return result.visible ? (outfit?.gokuHit ?? sprites.gokuHit)[result.frameIndex] : null;
+  }
+  if (itemAction) {
+    const pose = updateItemAction(dt, outfit?.item ?? sprites.item);
+    if (pose) return pose;
   }
   const { x: horizontal, y: vertical } = beam ? { x: 0, y: 0 } : movementVector();
   const looking = Math.abs(vertical) > Math.abs(horizontal);
@@ -698,7 +806,7 @@ function update(dt, width, height, size) {
 
 function render(time) {
   requestAnimationFrame(render);
-  if (!landscape.matches || document.hidden) return;
+  if (pauseMenu.open || !landscape.matches || document.hidden) return;
   const width = canvas.clientWidth;
   const height = canvas.clientHeight;
   const density = window.devicePixelRatio || 1;
@@ -719,6 +827,7 @@ function render(time) {
   const focusing = beam?.elapsed < 0;
   game.classList.toggle('beam-focus', focusing);
   if (!focusing) {
+    updateSeed(dt, width, floor, size);
     updateBlasts(dt, width, size);
     spawnEnemy(dt, width, height, size);
     if (beam) applyBeam(width, size);
@@ -729,6 +838,9 @@ function render(time) {
   context.fillStyle = '#e5e9ef';
   context.fillRect(0, floor, width, 1);
   context.imageSmoothingEnabled = false;
+  if (!seed.collected && seed.altitude !== null) {
+    drawSeed(seed.position * width, floor - seed.altitude - 7 * size, size * 1.35);
+  }
   for (const enemy of enemies) {
     if (!focusing) enemy.frame = updateEnemy(enemy, dt, width, height, size);
     const frame = enemy.frame;
@@ -746,6 +858,11 @@ function render(time) {
   for (const blast of blasts) drawBlast(blast, floor, size);
   if (focusing) drawBeamFocus(width, height, floor, size);
   if (playerFrame) drawFighter(playerFrame, x, floor - airborneHeight, facing, size, flightAngle);
+  if (itemAction?.type === 'pickup' && animation === 'pickup' && itemAction.elapsed >= 0.23) {
+    const hover = Math.sin(itemAction.elapsed * 10) * 4 * size;
+    const handHeight = playerFrame.frame.height * playerFrame.scale;
+    drawSeed(x - facing * 19 * size, floor - airborneHeight - (handHeight + 15) * size + hover, size * 1.55);
+  }
   if (focusing) drawBeamCharge(floor, size);
   else if (beam) drawBeam(width, floor, size);
 }
@@ -813,9 +930,10 @@ function readOutfit(image, top) {
 
 async function start() {
   try {
-    const [base, charge, combat, damaged, kame] = await Promise.all([
+    const [base, charge, combat, damaged, kame, senzu] = await Promise.all([
       loadImage('assets/goku-base.png'), loadImage('assets/goku-ki.png'), loadImage('assets/combat.png'),
       loadImage('assets/goku-damaged.png'), loadImage('assets/goku-kamehameha.png'),
+      loadImage('assets/goku-senzu.png'),
     ]);
     const idle = readRow(base, baseColumns, 5, 159);
     const combatColumns = Array.from({ length: 6 }, (_, index) => Math.round(index * combat.width / 5));
@@ -836,14 +954,24 @@ async function start() {
       for (const pose of frames) pose.scale = scale;
       return frames;
     });
+    const itemColumns = Array.from({ length: 5 }, (_, index) => Math.round(senzu.width * index / 4));
+    const itemPoses = [0, 1, 2].map((row) => {
+      const top = Math.round(senzu.height * row / 3);
+      const bottom = Math.round(senzu.height * (row + 1) / 3);
+      const frames = readRow(senzu, itemColumns, top, bottom, 1, true);
+      const scale = 142 / frames[2].frame.height;
+      for (const pose of frames) pose.scale = scale;
+      return frames;
+    });
     sprites = {
       idle,
       beam: beamPoses[0],
+      item: itemPoses[0],
       enemy: enemyFrames,
       enemyHit,
       gokuHit,
-      torn: { ...readOutfit(damaged, 0), beam: beamPoses[1] },
-      shirtless: { ...readOutfit(damaged, damaged.height / 2), beam: beamPoses[2] },
+      torn: { ...readOutfit(damaged, 0), beam: beamPoses[1], item: itemPoses[1] },
+      shirtless: { ...readOutfit(damaged, damaged.height / 2), beam: beamPoses[2], item: itemPoses[2] },
       lookUp: lookPose(idle[0], -0.24),
       lookDown: lookPose(idle[0], 0.24),
       walk: readRow(base, baseColumns, 159, 298),

@@ -19,6 +19,12 @@
       <meter class="enemy-health health-meter" aria-label="Vida do Cell Jr." min="0" max="60" value="60"></meter>
     </template>
     <button id="fullscreen" type="button" aria-label="Tela cheia" title="Tela cheia">⛶</button>
+    <button id="pause" type="button" aria-label="Pausar" title="Pausar">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <rect x="6" y="4" width="4" height="16" rx="1"/>
+        <rect x="14" y="4" width="4" height="16" rx="1"/>
+      </svg>
+    </button>
     <canvas id="arena" aria-label="Goku em forma base em um plano branco"></canvas>
     <p id="status" role="status">Carregando sprites…</p>
     <p id="defeat" role="status" hidden>Goku foi derrotado. Atualize a página para tentar de novo.</p>
@@ -36,6 +42,29 @@
         <button type="button" data-action="beam" aria-label="Kamehameha (custa 40 de ki)">Kame</button>
       </div>
     </div>
+    <button id="pick-up" type="button" hidden>Pegar</button>
+    <div class="inventory" role="group" aria-label="Inventário">
+      <button id="seed-slot" class="inventory-slot" type="button" aria-label="Usar Semente dos Deuses" title="Usar Semente dos Deuses" disabled>
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path fill="#153d2c" d="M7 1h6v2h2v6h-2v3h-3v2H4v-2H2V6h2V3h3z"/>
+          <path fill="#4cba63" d="M7 3h6v6h-2v3H4V6h3z"/>
+          <path fill="#b7eb77" d="M8 4h4v3h-2v2H6V6h2z"/>
+        </svg>
+        <span id="seed-count"></span>
+      </button>
+      <span class="inventory-slot" aria-hidden="true"></span>
+      <span class="inventory-slot" aria-hidden="true"></span>
+      <span class="inventory-slot" aria-hidden="true"></span>
+      <span class="inventory-slot" aria-hidden="true"></span>
+    </div>
+    <dialog id="pause-menu" aria-label="Jogo pausado">
+      <button id="restart" type="button" aria-label="Reiniciar" title="Reiniciar" autofocus>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M9 5 4 10l5 5M4 10h10a5 5 0 0 1 0 10h-2"/>
+        </svg>
+      </button>
+    </dialog>
   </main>
   <section class="orientation" aria-label="Orientação da tela">
     <div class="phone" aria-hidden="true"></div>

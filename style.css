@@ -114,8 +114,47 @@ button {
 .actions button[aria-pressed="true"] { background: #182940; border-color: #182940; color: #fff; }
 .controls button[data-action="charge"] { background: #ffdfb6; border-color: #eabf8c; color: #562705; }
 .controls button:is(:active, .pressed) { background: #182940; border-color: #182940; color: #fff; }
+.inventory {
+  position: absolute;
+  left: 50%;
+  bottom: max(14px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  display: flex;
+  gap: 3px;
+  padding: 4px;
+  background: #25344a;
+  border-radius: 6px;
+}
+.inventory-slot {
+  position: relative;
+  width: clamp(25px, 8dvh, 38px);
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border: 1px solid #63748c;
+  border-radius: 3px;
+  background: #182437;
+  color: white;
+}
+#seed-slot svg { width: 65%; }
+#seed-slot:not(.occupied) svg { visibility: hidden; }
+#seed-slot:disabled { cursor: default; }
+#seed-count { position: absolute; bottom: 0; right: 3px; font-size: .65rem; }
+#pick-up {
+  position: absolute;
+  left: 50%;
+  bottom: calc(max(14px, env(safe-area-inset-bottom)) + clamp(25px, 8dvh, 38px) + 16px);
+  transform: translateX(-50%);
+  min-height: 44px;
+  padding: 0 15px;
+  background: #e6f5da;
+  border-color: #9cb98e;
+}
+@media (max-width: 650px), (max-width: 780px) and (min-height: 460px) {
+  .controls { bottom: calc(max(14px, env(safe-area-inset-bottom)) + 36px); }
+}
 button:focus-visible { outline: 3px solid #315c97; outline-offset: 3px; }
-#fullscreen {
+#fullscreen, #pause {
   position: absolute;
   z-index: 1;
   top: max(12px, env(safe-area-inset-top));
@@ -124,6 +163,28 @@ button:focus-visible { outline: 3px solid #315c97; outline-offset: 3px; }
   height: 44px;
   font-size: 1.4rem;
 }
+#pause {
+  right: max(72px, calc(env(safe-area-inset-right) + 52px));
+  display: grid;
+  place-items: center;
+}
+#fullscreen[hidden] + #pause { right: max(20px, env(safe-area-inset-right)); }
+#pause svg { width: 22px; height: 22px; }
+#pause-menu {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+#pause-menu::backdrop { background: rgb(0 0 0 / 42%); }
+#restart {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+}
+#restart svg { width: 30px; height: 30px; }
+#game.paused :is(#pause, #fullscreen, .controls, #pick-up, .inventory) { visibility: hidden; }
 #status { position: absolute; inset: 42% 16px auto; text-align: center; pointer-events: none; }
 #combat-notice {
   position: absolute;
@@ -143,6 +204,7 @@ button:focus-visible { outline: 3px solid #315c97; outline-offset: 3px; }
 .orientation { display: none; }
 @media (orientation: portrait) {
   #game { display: none; }
+  #pause-menu, #pause-menu::backdrop { display: none; }
   .orientation {
     min-height: 100dvh;
     display: flex;
