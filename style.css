@@ -34,20 +34,18 @@ meter::-webkit-meter-optimum-value { background: #db640d; }
 meter::-moz-meter-bar { background: #db640d; }
 .health-meter::-webkit-meter-optimum-value { background: #29835b; }
 .health-meter::-moz-meter-bar { background: #29835b; }
-#enemy-hud {
+.enemy-health {
   position: absolute;
   inset: 0 auto auto 0;
   z-index: 1;
   width: clamp(36px, 13dvh, 66px);
   pointer-events: none;
-}
-#enemy-health {
   display: block;
   height: 8px;
 }
-#enemy-health::-webkit-meter-bar { border: 1px solid #384256; border-radius: 2px; }
-#enemy-health::-webkit-meter-optimum-value { background: #d44949; }
-#enemy-health::-moz-meter-bar { background: #d44949; }
+.enemy-health::-webkit-meter-bar { border: 1px solid #384256; border-radius: 2px; }
+.enemy-health::-webkit-meter-optimum-value { background: #d44949; }
+.enemy-health::-moz-meter-bar { background: #d44949; }
 .controls {
   position: absolute;
   inset: auto max(20px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));

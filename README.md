@@ -15,4 +15,4 @@ Protótipo web de treino com Goku em forma base. Sirva a pasta localmente com `p
 
 O jogo fica disponível com a tela na horizontal. O botão de tela cheia solicita o bloqueio da orientação quando o navegador oferece suporte.
 
-O Cell Jr. aparece após alguns instantes e persegue o Goku no chão e no ar. Acerte socos e chutes de perto, com o Goku virado para o inimigo. As barras de vida aparecem no topo. Se Goku for derrotado, recarregue a página para recomeçar.
+Os Cell Jr. aparecem alternadamente pelos dois lados, em intervalos cada vez menores, e perseguem Goku no chão e no ar. Socos e chutes acertam todos os inimigos próximos à frente. Cada inimigo derrotado rende 20 pontos de ki, até o limite de 100. As barras vermelhas acompanham os inimigos. Se Goku for derrotado, recarregue a página para recomeçar.

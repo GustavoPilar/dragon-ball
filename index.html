@@ -15,9 +15,9 @@
       <div class="ki-label"><label for="ki">KI</label><output id="ki-value" for="ki">0%</output></div>
       <meter id="ki" min="0" max="100" value="0">0%</meter>
     </div>
-    <div id="enemy-hud" hidden>
-      <meter class="health-meter" id="enemy-health" aria-label="Vida do Cell Jr." min="0" max="60" value="60"></meter>
-    </div>
+    <template id="enemy-health-template">
+      <meter class="enemy-health health-meter" aria-label="Vida do Cell Jr." min="0" max="60" value="60"></meter>
+    </template>
     <button id="fullscreen" type="button" aria-label="Tela cheia" title="Tela cheia">⛶</button>
     <canvas id="arena" aria-label="Goku em forma base em um plano branco"></canvas>
     <p id="status" role="status">Carregando sprites…</p>
