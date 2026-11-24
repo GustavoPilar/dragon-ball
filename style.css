@@ -109,6 +109,7 @@ button {
 .actions [data-action="blast"] { grid-area: 1 / 5 / 2 / 7; background: #d9f0ff; border-color: #a5cde8; }
 .actions [data-action="jump"] { grid-area: 2 / 2 / 3 / 4; }
 .actions [data-action="charge"] { grid-area: 2 / 4 / 3 / 6; }
+.actions [data-action="beam"] { grid-area: 2 / 6 / 3 / 8; background: #c8e6ff; border-color: #86b7df; }
 .actions button[aria-pressed="true"] { background: #182940; border-color: #182940; color: #fff; }
 .controls button[data-action="charge"] { background: #ffdfb6; border-color: #eabf8c; color: #562705; }
 .controls button:is(:active, .pressed) { background: #182940; border-color: #182940; color: #fff; }

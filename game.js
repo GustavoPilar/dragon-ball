@@ -19,6 +19,7 @@ const keys = new Map([
   ['ArrowUp', 'up'], ['ArrowDown', 'down'],
   ['Space', 'jump'],
   ['KeyZ', 'punch'], ['KeyX', 'kick'], ['KeyC', 'charge'], ['KeyV', 'blast'],
+  ['KeyB', 'beam'],
 ]);
 const heldInputs = new Map();
 const walkSpeed = 320;
@@ -26,6 +27,8 @@ const flightSpeed = 380;
 const verticalFlightSpeed = 1; // Viewport heights per second.
 const chargeSpeed = 40;
 const blastCost = 10;
+const beamCost = 40;
+const beamDuration = 2;
 const flightKiMinimum = 10;
 const criticalHealth = 25;
 const attackFrameTime = 0.085;
@@ -35,6 +38,7 @@ const stick = { pointerId: null, x: 0, y: 0 };
 const playerCombat = { health: 100, reaction: null };
 const enemies = [];
 const blasts = [];
+let beam = null;
 let noticeTime = 0;
 const maxEnemies = 12;
 const defeatFallTime = 0.85;
@@ -207,6 +211,19 @@ function triggerJump(now) {
 function press(input, action) {
   if (!landscape.matches || !sprites || !playerCombat.health || heldInputs.has(input)) return;
   heldInputs.set(input, action);
+  if (beam) {
+    syncButtons();
+    return;
+  }
+  if (action === 'beam' && !playerCombat.reaction && !attack) {
+    if (ki >= beamCost) {
+      beam = { direction: facing, elapsed: 0, targets: new WeakSet() };
+      addKi(-beamCost);
+      lastJumpPress = -Infinity;
+    } else {
+      showNotice('O Kamehameha custa 40% de ki.');
+    }
+  }
   if (action === 'jump' && !playerCombat.reaction) triggerJump(performance.now());
   if (action === 'blast' && !playerCombat.reaction && !attack) {
     if (ki >= blastCost) attack = { name: action, elapsed: 0 };
@@ -384,6 +401,45 @@ function drawBlast(blast, floor, size) {
   }
 }
 
+function applyBeam(width, size) {
+  const origin = beamOrigin(width, size);
+  const range = Math.abs(origin.end - origin.x);
+  for (const enemy of enemies) {
+    const ahead = (enemy.x - origin.x) * beam.direction;
+    const altitude = origin.altitude - enemy.altitude;
+    if (!enemy.health || beam.targets.has(enemy) || (enemy.x - x) * beam.direction < 0 ||
+        ahead < -32 * size || ahead > range ||
+        altitude < -5 * size || altitude > 125 * size) continue;
+    beam.targets.add(enemy);
+    hitEnemy(enemy, 75, beam.direction);
+  }
+}
+
+function beamOrigin(width, size) {
+  const end = beam.direction > 0 ? width : 0;
+  const hand = x + beam.direction * 49 * size;
+  return {
+    x: Math.max(0, Math.min(width, hand)),
+    altitude: airborneHeight + 95 * size,
+    end,
+  };
+}
+
+function drawBeam(width, floor, size) {
+  const origin = beamOrigin(width, size);
+  const y = floor - origin.altitude;
+  const fade = Math.min(1, (beamDuration - beam.elapsed) / 0.22);
+  const radius = (17 + 2 * Math.sin(beam.elapsed * 48)) * size * fade;
+  for (const [scale, color] of [[1.35, '#b0eaff'], [1, '#138bff'], [0.67, '#75dcff'], [0.36, '#faffff']]) {
+    const band = radius * scale;
+    context.fillStyle = color;
+    context.fillRect(origin.x, y - band, origin.end - origin.x, band * 2);
+    context.beginPath();
+    context.arc(origin.x, y, band, 0, Math.PI * 2);
+    context.fill();
+  }
+}
+
 function boundedX(position, width, padding) {
   const edge = Math.min(width / 2, padding);
   return Math.max(edge, Math.min(width - edge, position));
@@ -455,6 +511,7 @@ function updateEnemy(enemy, dt, width, height, size) {
       if (!playerCombat.health) {
         setFlying(false);
         blasts.length = 0;
+        beam = null;
         combatNotice.hidden = true;
         resetInputs();
       }
@@ -503,7 +560,7 @@ function update(dt, width, height, size) {
     if (result.finished) defeat.hidden = false;
     return result.visible ? (outfit?.gokuHit ?? sprites.gokuHit)[result.frameIndex] : null;
   }
-  const { x: horizontal, y: vertical } = movementVector();
+  const { x: horizontal, y: vertical } = beam ? { x: 0, y: 0 } : movementVector();
   const looking = Math.abs(vertical) > Math.abs(horizontal);
   const direction = !flying && looking ? 0 : horizontal;
   if (jumpElapsed !== null) {
@@ -525,6 +582,12 @@ function update(dt, width, height, size) {
     if (Math.abs(direction) > 0.12) facing = Math.sign(direction);
   } else {
     airborneHeight = Math.max(0, airborneHeight - height * 0.8 * dt);
+  }
+  if (beam) {
+    facing = beam.direction;
+    flightAngle = 0;
+    animation = 'beam';
+    return (outfit?.blast ?? sprites.blast)[2];
   }
   let next = 'idle';
   let frameIndex = 0;
@@ -592,9 +655,14 @@ function render(time) {
   x ??= width / 2;
   const floor = Math.round(height * 0.71);
   const size = Math.min(1.42, height * 0.37 / 150);
+  if (beam) {
+    beam.elapsed += dt;
+    if (beam.elapsed >= beamDuration) beam = null;
+  }
   const playerFrame = update(dt, width, height, size);
   updateBlasts(dt, width, size);
   spawnEnemy(dt, width, height, size);
+  if (beam) applyBeam(width, size);
 
   context.setTransform(density, 0, 0, density, 0, 0);
   context.clearRect(0, 0, width, height);
@@ -616,6 +684,7 @@ function render(time) {
   }
   if (playerFrame) drawFighter(playerFrame, x, floor - airborneHeight, facing, size, flightAngle);
   for (const blast of blasts) drawBlast(blast, floor, size);
+  if (beam) drawBeam(width, floor, size);
 }
 
 function drawFighter({ frame, scale }, position, baseline, direction, size, angle = 0) {
