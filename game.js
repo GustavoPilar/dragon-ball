@@ -12,24 +12,30 @@ const game = document.querySelector('#game');
 const enemyHealthTemplate = document.querySelector('#enemy-health-template');
 const defeat = document.querySelector('#defeat');
 const gokuHealth = document.querySelector('#goku-health');
+const combatNotice = document.querySelector('#combat-notice');
 
 const keys = new Map([
   ['ArrowLeft', 'left'], ['ArrowRight', 'right'],
   ['ArrowUp', 'up'], ['ArrowDown', 'down'],
   ['Space', 'jump'],
-  ['KeyZ', 'punch'], ['KeyX', 'kick'], ['KeyC', 'charge'],
+  ['KeyZ', 'punch'], ['KeyX', 'kick'], ['KeyC', 'charge'], ['KeyV', 'blast'],
 ]);
 const heldInputs = new Map();
 const walkSpeed = 320;
 const flightSpeed = 380;
 const verticalFlightSpeed = 1; // Viewport heights per second.
 const chargeSpeed = 40;
+const blastCost = 10;
+const flightKiMinimum = 10;
+const criticalHealth = 25;
 const attackFrameTime = 0.085;
 const doubleTapTime = 350;
 const jumpDuration = 0.65;
 const stick = { pointerId: null, x: 0, y: 0 };
 const playerCombat = { health: 100, reaction: null };
 const enemies = [];
+const blasts = [];
+let noticeTime = 0;
 const maxEnemies = 12;
 const defeatFallTime = 0.85;
 const defeatBlinkTime = 0.72;
@@ -164,13 +170,34 @@ function syncButtons() {
   for (const button of buttons) button.classList.toggle('pressed', active(button.dataset.action));
 }
 
+function showNotice(message) {
+  combatNotice.textContent = message;
+  combatNotice.hidden = false;
+  noticeTime = 1.5;
+}
+
+function flightRestriction() {
+  if (playerCombat.health <= criticalHealth) return 'Goku está ferido demais para voar.';
+  if (ki < flightKiMinimum) return 'Carregue pelo menos 10% de ki para voar.';
+  return '';
+}
+
+function setFlying(enabled) {
+  flying = enabled;
+  liftingOff = enabled;
+  jumpButton.setAttribute('aria-pressed', String(enabled));
+}
+
 function triggerJump(now) {
   if (now - lastJumpPress <= doubleTapTime) {
-    flying = !flying;
-    liftingOff = flying;
-    jumpButton.setAttribute('aria-pressed', String(flying));
-    jumpElapsed = null;
     lastJumpPress = -Infinity;
+    const restriction = flying ? '' : flightRestriction();
+    if (restriction) {
+      showNotice(restriction);
+      return;
+    }
+    setFlying(!flying);
+    jumpElapsed = null;
     return;
   }
   lastJumpPress = now;
@@ -181,6 +208,10 @@ function press(input, action) {
   if (!landscape.matches || !sprites || !playerCombat.health || heldInputs.has(input)) return;
   heldInputs.set(input, action);
   if (action === 'jump' && !playerCombat.reaction) triggerJump(performance.now());
+  if (action === 'blast' && !playerCombat.reaction && !attack) {
+    if (ki >= blastCost) attack = { name: action, elapsed: 0 };
+    else showNotice('A esfera custa 10% de ki.');
+  }
   if ((action === 'punch' || action === 'kick') && !playerCombat.reaction && !attack && !active('charge')) {
     attack = { name: action, elapsed: 0 };
   }
@@ -255,12 +286,21 @@ fullscreen.addEventListener('click', async () => {
 });
 
 function addKi(amount) {
-  const next = Math.min(100, ki + amount);
+  const next = Math.max(0, Math.min(100, ki + amount));
   if (Math.floor(next) !== Math.floor(ki)) {
     meter.value = Math.floor(next);
     kiValue.textContent = meter.value + '%';
   }
   ki = next;
+  enforceFlightRestriction();
+}
+
+function enforceFlightRestriction() {
+  if (!flying) return;
+  const restriction = flightRestriction();
+  if (!restriction) return;
+  setFlying(false);
+  if (playerCombat.health) showNotice(restriction);
 }
 
 function damage(target, amount, direction, altitude) {
@@ -270,6 +310,7 @@ function damage(target, amount, direction, altitude) {
     gokuHealth.value = target.health;
     document.querySelector('#goku-health-value').textContent = target.health + '/' + gokuHealth.max;
     facing = -direction;
+    enforceFlightRestriction();
   } else {
     target.meter.value = target.health;
     target.facing = -direction;
@@ -283,6 +324,64 @@ function damage(target, amount, direction, altitude) {
 function inRange(dx, dy, direction, reach, size) {
   return dx * direction >= -8 * size && Math.abs(dx) <= reach * size &&
     Math.abs(dy) <= 49 * size;
+}
+
+function resolveAttack(name, size) {
+  if (name === 'blast') {
+    if (ki < blastCost) return;
+    addKi(-blastCost);
+    blasts.push({ x: x + facing * 49 * size, altitude: airborneHeight + 96 * size, direction: facing });
+    return;
+  }
+  const isKick = name === 'kick';
+  for (const enemy of enemies) {
+    const dx = enemy.x - x;
+    if (!enemy.health || dx * facing < 0 ||
+        !inRange(dx, enemy.altitude - airborneHeight, facing, isKick ? 106 : 88, size)) continue;
+    hitEnemy(enemy, isKick ? 30 : 20, facing);
+  }
+}
+
+function hitEnemy(enemy, amount, direction) {
+  damage(enemy, amount, direction, enemy.altitude);
+  enemy.attackTime = null;
+  enemy.cooldown = 0.4;
+}
+
+function updateBlasts(dt, width, size) {
+  for (let index = blasts.length - 1; index >= 0; index--) {
+    const blast = blasts[index];
+    const distance = 640 * dt;
+    const radius = 28 * size;
+    let target;
+    let nearest = distance + radius;
+    for (const enemy of enemies) {
+      const ahead = (enemy.x - blast.x) * blast.direction;
+      const altitude = blast.altitude - enemy.altitude;
+      if (enemy.health && ahead >= -radius && ahead <= nearest &&
+          altitude >= 12 * size && altitude <= 112 * size) {
+        target = enemy;
+        nearest = ahead;
+      }
+    }
+    blast.x += blast.direction * distance;
+    if (target) hitEnemy(target, 35, blast.direction);
+    if (target || blast.x < -radius || blast.x > width + radius) blasts.splice(index, 1);
+  }
+}
+
+function drawBlast(blast, floor, size) {
+  const y = floor - blast.altitude;
+  const radius = 11 * size;
+  context.fillStyle = '#a4e7ff';
+  context.fillRect(blast.x - blast.direction * radius * 2, y - radius / 4,
+    blast.direction * radius * 2, radius / 2);
+  for (const [scale, color] of [[1, '#2089db'], [0.75, '#76dfff'], [0.47, '#f4fcff']]) {
+    context.fillStyle = color;
+    context.beginPath();
+    context.arc(blast.x, y, radius * scale, 0, Math.PI * 2);
+    context.fill();
+  }
 }
 
 function boundedX(position, width, padding) {
@@ -354,9 +453,9 @@ function updateEnemy(enemy, dt, width, height, size) {
       lastJumpPress = -Infinity;
       chargeTime = 0;
       if (!playerCombat.health) {
-        flying = false;
-        liftingOff = false;
-        jumpButton.setAttribute('aria-pressed', 'false');
+        setFlying(false);
+        blasts.length = 0;
+        combatNotice.hidden = true;
         resetInputs();
       }
     }
@@ -388,6 +487,12 @@ function updateEnemy(enemy, dt, width, height, size) {
 }
 
 function update(dt, width, height, size) {
+  if (noticeTime > 0) {
+    noticeTime -= dt;
+    if (noticeTime <= 0) combatNotice.hidden = true;
+  }
+  const outfit = playerCombat.health <= criticalHealth ? sprites.shirtless
+    : playerCombat.health <= 60 ? sprites.torn : null;
   if (playerCombat.reaction) {
     const result = react(playerCombat, dt, height, (dx) => {
       x = boundedX(x + dx, width, 120 * size);
@@ -396,7 +501,7 @@ function update(dt, width, height, size) {
     flightAngle = 0;
     animation = playerCombat.health ? 'hurt' : 'defeated';
     if (result.finished) defeat.hidden = false;
-    return result.visible ? sprites.gokuHit[result.frameIndex] : null;
+    return result.visible ? (outfit?.gokuHit ?? sprites.gokuHit)[result.frameIndex] : null;
   }
   const { x: horizontal, y: vertical } = movementVector();
   const looking = Math.abs(vertical) > Math.abs(horizontal);
@@ -428,17 +533,7 @@ function update(dt, width, height, size) {
     const before = attack.elapsed;
     attack.elapsed += dt;
     const impact = attackFrameTime * 2;
-    if (before < impact && attack.elapsed >= impact) {
-      const isKick = attack.name === 'kick';
-      for (const enemy of enemies) {
-        const dx = enemy.x - x;
-        if (!enemy.health || dx * facing < 0 || !inRange(dx, enemy.altitude - airborneHeight, facing,
-          isKick ? 106 : 88, size)) continue;
-        damage(enemy, isKick ? 30 : 20, facing, enemy.altitude);
-        enemy.attackTime = null;
-        enemy.cooldown = 0.4;
-      }
-    }
+    if (before < impact && attack.elapsed >= impact) resolveAttack(attack.name, size);
     if (attack.elapsed >= sprites[attack.name].length * attackFrameTime) attack = null;
   }
 
@@ -478,7 +573,8 @@ function update(dt, width, height, size) {
   if (next === 'hover') frameIndex = Math.floor(animationTime * 4) % 2 === 0 ? 0 : 4;
   flightAngle = next === 'fly' ? Math.atan2(vertical, Math.abs(direction)) : 0;
   x = boundedX(x, width, 120 * size);
-  return sprites[next === 'hover' ? 'fly' : next][frameIndex];
+  const frames = outfit?.[next] ?? sprites[next === 'hover' ? 'fly' : next];
+  return frames[frameIndex];
 }
 
 function render(time) {
@@ -497,6 +593,7 @@ function render(time) {
   const floor = Math.round(height * 0.71);
   const size = Math.min(1.42, height * 0.37 / 150);
   const playerFrame = update(dt, width, height, size);
+  updateBlasts(dt, width, size);
   spawnEnemy(dt, width, height, size);
 
   context.setTransform(density, 0, 0, density, 0, 0);
@@ -518,6 +615,7 @@ function render(time) {
     if (enemies[index].gone) enemies.splice(index, 1);
   }
   if (playerFrame) drawFighter(playerFrame, x, floor - airborneHeight, facing, size, flightAngle);
+  for (const blast of blasts) drawBlast(blast, floor, size);
 }
 
 function drawFighter({ frame, scale }, position, baseline, direction, size, angle = 0) {
@@ -536,15 +634,13 @@ function drawFighter({ frame, scale }, position, baseline, direction, size, angl
   context.restore();
 }
 
-function lookPose({ frame, scale }, angle) {
+function lookPose({ frame, scale }, angle, neckX = 122, neckY = 53) {
   const pose = document.createElement('canvas');
   pose.width = frame.width;
   pose.height = frame.height;
   const draw = pose.getContext('2d');
   draw.imageSmoothingEnabled = false;
   // The first idle frame is cut at the neck so the feet and torso stay planted.
-  const neckX = 122;
-  const neckY = 53;
   const bodyHeight = frame.height - neckY;
   draw.drawImage(frame, 0, neckY, frame.width, bodyHeight, 0, neckY, frame.width, bodyHeight);
   draw.translate(neckX, neckY);
@@ -553,10 +649,41 @@ function lookPose({ frame, scale }, angle) {
   return [{ frame: pose, scale }];
 }
 
+function readOutfit(image, top) {
+  const rowHeight = image.height / 4;
+  const movement = [0, 256, 512, 768, 982, 1260, 1536];
+  const actions = [0, 256, 512, 747, 994, 1240, 1536];
+  const [idle, stepA, stepB, jump, fly, hurt] =
+    readRow(image, movement, top, top + rowHeight, 1, true);
+  const [guard, punch, kick, blast, charge, down] =
+    readRow(image, actions, top + rowHeight, top + 2 * rowHeight, 1, true);
+  const scale = 142 / idle.frame.height;
+  for (const pose of [idle, stepA, stepB, jump, fly, hurt, guard, punch, kick, blast, charge, down]) {
+    pose.scale = scale;
+  }
+  const neckX = idle.frame.width * 0.62;
+  const neckY = idle.frame.height * 0.29;
+  return {
+    idle: [idle, idle, idle, idle, idle],
+    walk: [stepA, stepA, stepB, stepB, stepA],
+    lookUp: lookPose(idle, -0.24, neckX, neckY),
+    lookDown: lookPose(idle, 0.24, neckX, neckY),
+    jump: [guard, jump, jump, jump, guard],
+    fly: [idle, fly, fly, fly, idle],
+    hover: [idle, idle, idle, idle, idle],
+    punch: [guard, guard, punch, guard, guard],
+    kick: [guard, guard, kick, guard, guard],
+    blast: [guard, guard, blast, blast, guard],
+    charge: [idle, charge, charge, charge, charge],
+    gokuHit: [hurt, hurt, hurt, down, down],
+  };
+}
+
 async function start() {
   try {
-    const [base, charge, combat] = await Promise.all([
+    const [base, charge, combat, damaged] = await Promise.all([
       loadImage('assets/goku-base.png'), loadImage('assets/goku-ki.png'), loadImage('assets/combat.png'),
+      loadImage('assets/goku-damaged.png'),
     ]);
     const idle = readRow(base, baseColumns, 5, 159);
     const combatColumns = Array.from({ length: 6 }, (_, index) => Math.round(index * combat.width / 5));
@@ -567,18 +694,22 @@ async function start() {
     const enemyScale = 108 / enemyFrames[0].frame.height;
     for (const frame of [...enemyFrames, ...enemyHit]) frame.scale = enemyScale;
     const gokuScale = 132 / gokuHit[0].frame.height;
+    const punch = readRow(base, baseColumns, 833, 963);
     for (const frame of gokuHit) frame.scale = gokuScale;
     sprites = {
       idle,
       enemy: enemyFrames,
       enemyHit,
       gokuHit,
+      torn: readOutfit(damaged, 0),
+      shirtless: readOutfit(damaged, damaged.height / 2),
       lookUp: lookPose(idle[0], -0.24),
       lookDown: lookPose(idle[0], 0.24),
       walk: readRow(base, baseColumns, 159, 298),
       jump: readRow(base, baseColumns, 426, 566),
       fly: readRow(base, baseColumns, 694, 833),
-      punch: readRow(base, baseColumns, 833, 963),
+      punch,
+      blast: [punch[0], punch[1], punch[2], punch[2], punch[4]],
       kick: readRow(base, baseColumns, 963, 1110),
       charge: readRow(charge, chargeColumns, 193, 519, 0.46),
     };

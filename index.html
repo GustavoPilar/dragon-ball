@@ -22,6 +22,7 @@
     <canvas id="arena" aria-label="Goku em forma base em um plano branco"></canvas>
     <p id="status" role="status">Carregando sprites…</p>
     <p id="defeat" role="status" hidden>Goku foi derrotado. Atualize a página para tentar de novo.</p>
+    <p id="combat-notice" role="status" hidden></p>
     <div class="controls">
       <div id="joystick" role="group" aria-label="Joystick de movimento" aria-description="Arraste para mover, olhar para cima ou para baixo, ou controlar o voo. Também funciona com as setas do teclado.">
         <span class="stick-thumb" aria-hidden="true"></span>
@@ -29,6 +30,7 @@
       <div class="actions" role="group" aria-label="Ações">
         <button type="button" data-action="punch">Soco</button>
         <button type="button" data-action="kick">Chute</button>
+        <button type="button" data-action="blast" aria-label="Disparar esfera de ki (custa 10)">Poder</button>
         <button type="button" data-action="jump" aria-description="Dois toques rápidos para voar ou pousar" aria-pressed="false">Pular</button>
         <button type="button" data-action="charge">Ki</button>
       </div>
