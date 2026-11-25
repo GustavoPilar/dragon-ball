@@ -40,6 +40,7 @@ body.playing { touch-action: none; }
   touch-action: manipulation;
 }
 .menu-list > a, #continue-game { color: #17212b; background: #ffd787; border-color: #ffd787; }
+.menu-list > a { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .menu-list > button:disabled { color: #c5c1b4; border-color: #657070; cursor: default; }
 .menu-back { padding: 6px 10px; color: #fff2d4; background: rgb(12 27 36 / 92%); border-color: #85754e; touch-action: manipulation; }
 .menu-list a:focus-visible { outline: 3px solid #bfeaff; outline-offset: 2px; }
@@ -288,7 +289,7 @@ button:focus-visible { outline: 3px solid #315c97; outline-offset: 3px; }
   text-shadow: 0 1px #e6f5dd, 1px 0 #e6f5dd, -1px 0 #e6f5dd;
   pointer-events: none;
 }
-#wave-status, #stage-complete {
+#wave-status {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
@@ -303,9 +304,61 @@ button:focus-visible { outline: 3px solid #315c97; outline-offset: 3px; }
   pointer-events: none;
 }
 #wave-status { top: max(43px, calc(env(safe-area-inset-top) + 30px)); font-size: .75rem; }
-#stage-complete { top: 33%; font-size: clamp(1.05rem, 4vw, 2rem); pointer-events: auto; }
-#stage-complete p { margin: 0 0 7px; }
-#back-to-levels { color: #ffe4a8; font-size: .85rem; }
+#radar {
+  position: absolute;
+  top: max(65px, calc(env(safe-area-inset-top) + 56px));
+  right: max(20px, env(safe-area-inset-right));
+  width: clamp(69px, 19dvh, 106px);
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  pointer-events: none;
+}
+#dragon-radar { display: block; width: 100%; }
+#radar-count:not([hidden]) {
+  border-radius: 4px;
+  background: #153e33;
+  padding: 1px 6px;
+  color: #ffe2a5;
+  font-size: .65rem;
+}
+#stage-complete:not([hidden]) {
+  position: absolute;
+  z-index: 4;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  background: rgb(12 17 26 / 82%);
+  animation: results-fade 1s ease-out both;
+}
+.results-card {
+  width: min(90vw, 380px);
+  max-height: 95dvh;
+  overflow: auto;
+  border-radius: 12px;
+  border: 2px solid #b48648;
+  padding: clamp(10px, 4dvh, 20px);
+  background: #172435;
+  color: #fff3cc;
+  text-align: center;
+  box-shadow: 0 6px 30px #070b15;
+}
+.results-card h1 { margin: 0 0 6px; font-size: clamp(1.25rem, 6dvh, 2rem); }
+.results-card dl { margin: 8px auto 10px; max-width: 260px; }
+.results-card dl div { display: flex; justify-content: space-between; gap: 10px; padding: 2px 0; }
+.results-card dd { margin: 0; color: #ffd880; font-variant-numeric: tabular-nums; }
+#back-to-levels { display: inline-block; color: #172435; background: #ffd880; border-radius: 5px; padding: 7px 13px; text-decoration: none; }
+.rating-stars { display: inline-flex; align-items: center; justify-content: center; gap: 3px; flex: 0 0 auto; }
+.rating-stars svg { width: 1.04em; fill: #725f41; stroke: #554933; stroke-width: 1.5; }
+.rating-stars svg.earned { fill: #ffd338; stroke: #b36a21; }
+#result-stars svg { width: clamp(35px, 14dvh, 60px); }
+#result-stars svg.earned { animation: star-pop .33s cubic-bezier(.15, 1.45, .5, 1) var(--star-delay) both; }
+@keyframes results-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes star-pop { from { transform: scale(.25) rotate(-18deg); opacity: .15; } to { transform: scale(1); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  #stage-complete:not([hidden]), #result-stars svg.earned { animation: none; }
+}
 #cutscene {
   position: absolute;
   z-index: 3;
@@ -349,7 +402,8 @@ button:focus-visible { outline: 3px solid #315c97; outline-offset: 3px; }
 #scene-dialogue[data-speaker="Raditz"]::before { left: 75%; }
 #scene-speaker { color: #7c3b0b; }
 .scene-next { position: absolute; right: 13px; top: 34%; font-size: 1.55rem; }
-#game.cutscene-active :is(.hud, .controls, .inventory, #fullscreen, #pause) { visibility: hidden; }
+#game.cutscene-active :is(.hud, .controls, .inventory, #fullscreen, #pause, #radar),
+#game.finished :is(.controls, .inventory, #fullscreen, #pause, #radar) { visibility: hidden; }
 #game.paused #collect-balls { visibility: hidden; }
 #defeat {
   position: absolute;

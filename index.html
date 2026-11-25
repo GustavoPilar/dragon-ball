@@ -8,6 +8,7 @@
   <script src="campaign.js" defer></script>
   <script src="menu.js" defer></script>
   <script src="motion.js" defer></script>
+  <script src="world.js" defer></script>
   <script src="game.js" defer></script>
 </head>
 <body>
@@ -57,13 +58,26 @@
       </svg>
     </button>
     <canvas id="arena" aria-label="Arena marcial entre penhascos" tabindex="-1"></canvas>
+    <div id="radar">
+      <canvas id="dragon-radar" width="128" height="128" aria-label="Radar do Dragão. Marcador claro para o jogador, pontos laranja para as esferas e vermelhos para os inimigos."></canvas>
+      <output id="radar-count" hidden></output>
+    </div>
     <p id="status" role="status">Carregando sprites…</p>
     <p id="defeat" role="status" hidden>Goku foi derrotado. Atualize a página para tentar de novo.</p>
     <p id="combat-notice" role="status" hidden></p>
     <p id="wave-status" role="status" hidden></p>
     <div id="stage-complete" hidden>
-      <p id="victory-message" role="status">Fase concluída</p>
-      <a id="back-to-levels" href="./">Voltar às fases</a>
+      <section class="results-card" aria-labelledby="victory-message">
+        <h1 id="victory-message">Fase concluída</h1>
+        <div id="result-stars" class="rating-stars"></div>
+        <dl>
+          <div><dt>Esferas do Dragão</dt><dd id="result-balls">0</dd></div>
+          <div><dt>Sementes coletadas</dt><dd id="result-seeds">0</dd></div>
+          <div><dt>Inimigos derrotados</dt><dd id="result-enemies">0</dd></div>
+          <div><dt>Pontuação</dt><dd id="result-score">0</dd></div>
+        </dl>
+        <a id="back-to-levels" href="./">Voltar às fases</a>
+      </section>
     </div>
     <div id="cutscene" hidden>
       <button id="skip-scene" type="button">Pular cena</button>
@@ -125,7 +139,7 @@
       </div>
     </div>
     <button id="pick-up" type="button" hidden>Pegar</button>
-    <button id="collect-balls" type="button" hidden>Pegar as esferas</button>
+    <button id="collect-balls" type="button" hidden>Pegar esfera</button>
     <div class="inventory" role="group" aria-label="Inventário">
       <button id="seed-slot" class="inventory-slot" type="button" aria-label="Usar Semente dos Deuses" title="Usar Semente dos Deuses" disabled>
         <svg viewBox="0 0 16 16" aria-hidden="true">

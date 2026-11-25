@@ -18,15 +18,17 @@ Jogo web de luta com 23 fases jogáveis nas sagas Saiyajin, Freeza, Androids/Cel
 
 O jogo fica disponível com a tela na horizontal. O botão de tela cheia solicita o bloqueio da orientação quando o navegador oferece suporte.
 
-Na Saga Saiyajin, **A chegada de Raditz** começa com uma cena que pode ser avançada pelo diálogo ou pulada. Raditz tem 360 de vida, luta no chão e no ar e usa socos, chutes e disparos de ki. Seus ataques ficam mais rápidos abaixo de metade da vida. Derrote-o e alcance a saída à direita.
+Na Saga Saiyajin, **A chegada de Raditz** começa com uma cena que pode ser avançada pelo diálogo ou pulada. Raditz tem 360 de vida, luta no chão e no ar e usa socos, chutes e disparos de ki. Seus ataques ficam mais rápidos abaixo de metade da vida.
 
 A campanha alterna personagens conforme o confronto, incluindo Piccolo, Kuririn, Gohan, Vegeta, Trunks, Gotenks e Vegetto. Goku pode usar Kaioken antes de Freeza. O primeiro Super Saiyajin de Goku é liberado na forma final de Freeza. As formas especiais iniciais exigem 100 de ki. Evoluções seguintes exigem pelo menos 55 e só ficam disponíveis nas fases previstas.
 
 Cada cor na barra de vida de um chefe com várias formas representa uma forma. Ao esgotar a cor ativa, o chefe se transforma e começa o segmento seguinte com outros golpes, ritmo ou alcance. Freeza tem quatro formas e um segmento final de poder máximo.
 
-Na Saga Freeza, **As Esferas de Namek** traz duas ondas de patrulheiros. Derrote-os, siga até o extremo direito e toque em **Pegar as esferas** para reunir as sete. O menu marca as fases concluídas quando o navegador permite salvar o progresso.
+Na Saga Freeza, **As Esferas de Namek** espalha as sete Esferas do Dragão entre o chão e plataformas no céu. No Radar do Dragão, o marcador claro indica o personagem e os pontos laranja indicam esferas ainda disponíveis. Explore as rotas, derrote as patrulhas e toque em **Pegar esfera** perto de cada uma.
 
-No treino, enfrente três ondas de Cell Jr. A primeira acontece no chão, a segunda traz inimigos dos dois lados e a terceira acontece no ar. Entre as ondas há um breve intervalo. Derrote a última onda e alcance o portal no extremo direito para concluir a fase.
+No treino, enfrente três ondas de Cell Jr. A primeira acontece no chão, a segunda traz inimigos dos dois lados e a terceira acontece no ar. Entre as ondas há um breve intervalo.
+
+Ao cumprir o objetivo da fase, a arena escurece e mostra itens coletados, inimigos derrotados e pontuação. As estrelas levam em conta o dano recebido. O melhor resultado fica visível junto à fase quando o navegador permite salvar o progresso.
 
 Socos e chutes acertam todos os inimigos próximos à frente. Cada inimigo derrotado com soco ou chute rende 20 pontos de ki, até o limite de 100. As barras vermelhas acompanham os inimigos. Se Goku for derrotado, recarregue a página para recomeçar.
 

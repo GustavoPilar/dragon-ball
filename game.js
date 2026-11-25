@@ -124,7 +124,17 @@ const powerStats = {
   trunksGrade3: { speed: 0.84, damage: 2.15, drain: 14 },
   superVegito: { speed: 1.45, damage: 1.95, drain: 10 },
 };
-const world = { width: 4200, ceiling: 1250, center: 2100 };
+const world = namek ? { width: namekRoute.width, ceiling: namekRoute.ceiling, center: namekRoute.start }
+  : { width: 4200, ceiling: 1250, center: 2100 };
+const environment = selectedLevel?.environment;
+const terrain = namek ? namekRoute.walls : training ? []
+  : ['canyon', 'ruins'].includes(environment) ? canyonTerrain
+    : ['city', 'tournament'].includes(environment) ? rooftopTerrain : campaignTerrain;
+const dragonBalls = namek ? namekRoute.balls.map(([x, y], index) => ({ x, y, stars: index + 1, found: false })) : [];
+const patrols = namek ? namekRoute.patrols.map((patrol) => ({ ...patrol, entered: false })) : [];
+const stageStats = { balls: 0, seeds: 0, enemies: 0, damage: 0 };
+const radarContext = document.querySelector('#dragon-radar').getContext('2d');
+const radarCount = document.querySelector('#radar-count');
 const camera = { left: 0, lift: 0 };
 const flightKiMinimum = 10;
 const criticalHealth = 25;
@@ -142,10 +152,7 @@ const goldenFrames = new WeakMap();
 let noticeTime = 0;
 const defeatFallTime = 0.85;
 const defeatBlinkTime = 0.72;
-const waves = namek ? [
-  { sides: [1, -1, 1], gap: 1.25, altitude: 0, followsFlight: false },
-  { sides: [-1, 1, -1, 1], gap: 0.9, altitude: 60, followsFlight: true },
-] : [
+const waves = [
   { sides: [1, 1], gap: 2, altitude: 0, followsFlight: false },
   { sides: [-1, 1, -1, 1], gap: 0.85, altitude: 0, followsFlight: true },
   { sides: [1, -1, 1, -1], gap: 0.9, altitude: 220, followsFlight: true },
@@ -158,8 +165,9 @@ const raditzAttacks = {
 const wave = { index: 0, spawned: 0, countdown: 2.5, resting: false };
 let boss = null;
 let bossIntro = 2.5;
-const exit = { x: world.width - 145, unlocked: false, reached: false };
-const seed = { position: world.center + (Math.random() - 0.5) * 340, altitude: null, delay: 2.8, collected: false };
+let opponentsCleared = false;
+let finished = false;
+const seed = { position: world.center + (Math.random() - 0.5) * 340, altitude: null, delay: 2.8, collected: false, landed: false };
 let seedsInInventory = 0;
 let itemAction = null;
 const pickupDuration = 1.05;
@@ -177,6 +185,8 @@ let animationTime = 0;
 let attack = null;
 let lastJumpPress = -Infinity;
 let jumpElapsed = null;
+let jumpOrigin = 0;
+let liftTarget = 0;
 let flying = false;
 let airborneHeight = 0;
 let liftingOff = false;
@@ -307,7 +317,23 @@ function flightRestriction() {
 function setFlying(enabled) {
   flying = enabled;
   liftingOff = enabled;
+  if (enabled) liftTarget = Math.min(world.ceiling, airborneHeight + canvas.clientHeight * 0.18);
   jumpButton.setAttribute('aria-pressed', String(enabled));
+}
+
+function fighterSize() {
+  return Math.min(1.42, canvas.clientHeight * 0.37 / 150);
+}
+
+function playerFloor(size) {
+  return terrainFloor(terrain, x, airborneHeight, 19 * size);
+}
+
+function movePlayer(nextX, nextAltitude, size) {
+  const next = moveInTerrain(terrain, x, airborneHeight,
+    boundedX(nextX, world.width, 120 * size), Math.min(world.ceiling, nextAltitude), 19 * size, 107 * size);
+  x = next.x;
+  airborneHeight = next.altitude;
 }
 
 function triggerJump(now) {
@@ -323,11 +349,15 @@ function triggerJump(now) {
     return;
   }
   lastJumpPress = now;
-  if (!flying && airborneHeight === 0 && jumpElapsed === null) jumpElapsed = 0;
+  const floor = playerFloor(fighterSize());
+  if (!flying && airborneHeight <= floor + 0.015 && jumpElapsed === null) {
+    jumpOrigin = floor;
+    jumpElapsed = 0;
+  }
 }
 
 function press(input, action) {
-  if (scene.active || pauseMenu.open || !landscape.matches || !sprites || !playerCombat.health || heldInputs.has(input)) return;
+  if (finished || scene.active || pauseMenu.open || !landscape.matches || !sprites || !playerCombat.health || heldInputs.has(input)) return;
   heldInputs.set(input, action);
   if (itemAction || transforming !== null) return;
   if (action === 'transform') {
@@ -516,17 +546,17 @@ function updateHealthMeter() {
 }
 
 function canUseItem() {
-  return landscape.matches && !pauseMenu.open && playerCombat.health && !playerCombat.reaction &&
+  return !finished && landscape.matches && !pauseMenu.open && playerCombat.health && !playerCombat.reaction &&
     !itemAction && !attack && !beam && transforming === null;
 }
 
 function canPickUp(size) {
-  return canUseItem() && !seed.collected && seed.altitude === 0 && airborneHeight <= 8 * size &&
+  return canUseItem() && !seed.collected && seed.landed && Math.abs(airborneHeight - seed.altitude) <= 12 * size &&
     Math.abs(x - seed.position) <= 48 * size;
 }
 
 pickUp.addEventListener('click', () => {
-  const size = Math.min(1.42, canvas.clientHeight * 0.37 / 150);
+  const size = fighterSize();
   if (!canPickUp(size)) return;
   seed.collected = true;
   itemAction = { type: 'pickup', elapsed: 0 };
@@ -543,18 +573,21 @@ seedSlot.addEventListener('click', () => {
 
 function updateSeed(dt, floor, size) {
   // Leave a way back into the aerial fight if wounds block flight.
-  if (training && wave.index === waves.length - 1 && !exit.unlocked && playerCombat.health &&
+  if ((namek || training && wave.index === waves.length - 1 && !opponentsCleared) && playerCombat.health &&
       playerCombat.health <= criticalHealth && seed.collected && !seedsInInventory && !itemAction) {
     seed.position = boundedX(x, world.width, 55 * size);
     seed.altitude = null;
     seed.delay = 1;
     seed.collected = false;
+    seed.landed = false;
   }
   if (!seed.collected && playerCombat.health) {
     seed.delay -= dt;
     if (seed.delay <= 0) {
-      seed.altitude ??= floor + 20;
-      seed.altitude = Math.max(0, seed.altitude - 320 * dt);
+      seed.altitude ??= safeTerrainAltitude(terrain, seed.position, Math.max(floor, airborneHeight) + 25, 6, 10);
+      const surface = terrainFloor(terrain, seed.position, seed.altitude);
+      seed.altitude = Math.max(surface, seed.altitude - 320 * dt);
+      seed.landed = seed.altitude === surface;
     }
   }
   pickUp.hidden = !canPickUp(size);
@@ -583,7 +616,10 @@ function updateItemAction(dt, frames) {
   const picking = itemAction.type === 'pickup';
   const finish = picking ? pickupDuration : eatDuration;
   if (itemAction.elapsed >= finish) {
-    if (picking) seedsInInventory++;
+    if (picking) {
+      seedsInInventory++;
+      stageStats.seeds++;
+    }
     else {
       seedsInInventory--;
       playerCombat.health = gokuHealth.max;
@@ -609,8 +645,10 @@ function enforceFlightRestriction() {
 }
 
 function damage(target, amount, direction, altitude, stagger = true) {
+  const before = target.health;
   target.health = Math.max(0, target.health - amount);
   if (target === playerCombat) {
+    stageStats.damage += before - target.health;
     updateHealthMeter();
     facing = -direction;
     enforceFlightRestriction();
@@ -635,6 +673,10 @@ function inRange(dx, dy, direction, reach, size) {
     Math.abs(dy) <= 49 * size;
 }
 
+function clearStrike(fromX, fromY, toX, toY, size) {
+  return closestTerrainHit(terrain, fromX, fromY + 64 * size, toX, toY + 64 * size) === 1;
+}
+
 function resolveAttack(name, size) {
   if (name === 'blast') {
     if (ki < blastCost) return;
@@ -647,13 +689,15 @@ function resolveAttack(name, size) {
   for (const enemy of enemies) {
     const dx = enemy.x - x;
     if (!enemy.health || dx * facing < 0 ||
-        !inRange(dx, enemy.altitude - airborneHeight, facing, isKick ? 106 : 88, size)) continue;
+        !inRange(dx, enemy.altitude - airborneHeight, facing, isKick ? 106 : 88, size) ||
+        !clearStrike(x, airborneHeight, enemy.x, enemy.altitude, size)) continue;
     hitEnemy(enemy, attackDamage(isKick ? 30 : 20), facing);
     if (!enemy.health && enemy.transition == null) addKi(20);
   }
 }
 
 function hitEnemy(enemy, amount, direction, stagger = true) {
+  if (!enemy.health) return;
   const previousReaction = enemy.reaction;
   damage(enemy, amount, direction, enemy.altitude, stagger);
   if (enemy.health && enemy.reaction === previousReaction) return;
@@ -662,6 +706,8 @@ function hitEnemy(enemy, amount, direction, stagger = true) {
   if (enemy.boss && !enemy.health && enemy.phase + 1 < enemy.encounter.forms.length) {
     enemy.reaction = null;
     enemy.transition = 0;
+  } else if (!enemy.health) {
+    stageStats.enemies++;
   }
 }
 
@@ -693,20 +739,23 @@ function updateBlasts(dt, width, size) {
     }
     const distance = 640 * dt;
     const radius = 31 * size;
+    const wall = closestTerrainHit(terrain, blast.x, blast.altitude,
+      blast.x + distance * blast.direction, blast.altitude);
     let target;
-    let nearest = distance + radius;
+    let nearest = (wall < 1 ? distance * wall : distance + radius);
     for (const enemy of enemies) {
       const ahead = (enemy.x - blast.x) * blast.direction;
       const altitude = blast.altitude - enemy.altitude;
       if (enemy.health && ahead >= -radius && ahead <= nearest &&
-          altitude >= 12 * size && altitude <= 112 * size) {
+          altitude >= 12 * size && altitude <= 112 * size &&
+          closestTerrainHit(terrain, blast.x, blast.altitude, enemy.x, blast.altitude) === 1) {
         target = enemy;
         nearest = ahead;
       }
     }
     blast.x += blast.direction * distance;
     if (target) hitEnemy(target, blast.damage, blast.direction);
-    if (target || blast.x < -radius || blast.x > width + radius) blasts.splice(index, 1);
+    if (target || wall < 1 || blast.x < -radius || blast.x > width + radius) blasts.splice(index, 1);
   }
 }
 
@@ -714,6 +763,7 @@ function updateHostileBlast(blast, dt, width, size) {
   if (!boss?.health) return true;
   const dx = 440 * dt * blast.direction;
   const dy = blast.verticalSpeed * dt;
+  if (closestTerrainHit(terrain, blast.x, blast.altitude, blast.x + dx, blast.altitude + dy) < 1) return true;
   const ahead = (x - blast.x) * blast.direction;
   const altitude = blast.altitude + dy * Math.max(0, Math.min(1, ahead / Math.abs(dx || 1))) - airborneHeight;
   const hit = ahead >= -29 * size && ahead <= Math.abs(dx) + 29 * size &&
@@ -772,12 +822,15 @@ function applyBeam(width, size) {
 }
 
 function beamOrigin(width, size) {
-  const end = beam.direction > 0 ? camera.left + width : camera.left;
+  const screenEnd = beam.direction > 0 ? camera.left + width : camera.left;
+  const altitude = airborneHeight + 89 * size;
   const hand = x + beam.direction * 52 * size;
+  const reach = closestTerrainHit(terrain, x, altitude, hand, altitude);
+  const originX = Math.max(camera.left, Math.min(camera.left + width, x + (hand - x) * reach));
+  const wall = closestTerrainHit(terrain, x, altitude, screenEnd, altitude);
   return {
-    x: Math.max(camera.left, Math.min(camera.left + width, hand)),
-    altitude: airborneHeight + 89 * size,
-    end,
+    x: originX, altitude,
+    end: x + (screenEnd - x) * wall,
   };
 }
 
@@ -920,7 +973,7 @@ function react(actor, dt, floorHeight, move) {
 }
 
 function updateWaves(dt, width, height, size) {
-  if (!playerCombat.health || exit.unlocked) return;
+  if (!playerCombat.health || opponentsCleared) return;
   const plan = waves[wave.index];
   wave.countdown -= dt;
   if (wave.resting) {
@@ -928,9 +981,9 @@ function updateWaves(dt, width, height, size) {
     wave.index++;
     wave.spawned = 0;
     wave.resting = false;
-  } else if (wave.spawned === plan.sides.length && !enemies.some((enemy) => enemy.health)) {
+  } else if (wave.spawned === plan.sides.length && enemies.length === 0) {
     if (wave.index === waves.length - 1) {
-      exit.unlocked = true;
+      opponentsCleared = true;
       return;
     }
     wave.resting = true;
@@ -945,7 +998,7 @@ function updateWaves(dt, width, height, size) {
 }
 
 function updateBossBattle(dt, width, size) {
-  if (!playerCombat.health || exit.unlocked) return;
+  if (!playerCombat.health || opponentsCleared) return;
   if (boss) {
     if (boss.gone) {
       bossHud.hidden = true;
@@ -953,7 +1006,7 @@ function updateBossBattle(dt, width, size) {
         if (blasts[index].hostile) blasts.splice(index, 1);
       }
       if (encounterIndex + 1 === encounters.length) {
-        exit.unlocked = true;
+        opponentsCleared = true;
       } else {
         encounterIndex++;
         boss = null;
@@ -965,10 +1018,12 @@ function updateBossBattle(dt, width, size) {
   bossIntro -= dt;
   if (bossIntro > 0) return;
   const encounter = encounters[encounterIndex];
+  const spawnX = boundedX(raditzEntranceX ?? camera.left + width - 70 * size, world.width, 64 * size);
   boss = {
     boss: true, meter: bossHealth, encounter, phase: 0, transition: null,
-    x: boundedX(raditzEntranceX ?? camera.left + width - 70 * size, world.width, 64 * size),
-    altitude: 0, facing: -1, reaction: null, gone: false,
+    x: spawnX,
+    altitude: safeTerrainAltitude(terrain, spawnX, 0, 20 * size, 107 * size),
+    facing: -1, reaction: null, gone: false,
     attackTime: null, cooldown: 0.55, staggerCooldown: 0, moves: 0, attackName: null,
   };
   boss.facing = boss.x > x ? -1 : 1;
@@ -1043,7 +1098,8 @@ function updateBoss(enemy, dt, size) {
           verticalSpeed: Math.max(-260, Math.min(260, (dy - 14 * size) / travel)),
           damage: Math.round(move.damage * phaseStrength), life: 2,
         });
-      } else if (inRange(dx, dy, enemy.facing, move.reach * (style === 'brute' ? 1.15 : 1), size)) {
+      } else if (inRange(dx, dy, enemy.facing, move.reach * (style === 'brute' ? 1.15 : 1), size) &&
+          clearStrike(enemy.x, enemy.altitude, x, airborneHeight, size)) {
         hurtPlayer(Math.round((move.damage + (style === 'brute' ? 3 : 0)) * phaseStrength), enemy.facing);
       }
     }
@@ -1056,7 +1112,7 @@ function updateBoss(enemy, dt, size) {
 
   enemy.cooldown = Math.max(0, enemy.cooldown - dt);
   if (Math.abs(dx) > 2) enemy.facing = Math.sign(dx);
-  if (!enemy.cooldown) {
+  if (!enemy.cooldown && clearStrike(enemy.x, enemy.altitude, x, airborneHeight, size)) {
     if (inRange(dx, dy, enemy.facing, 80, size)) {
       enemy.attackName = style === 'brute' || enemy.moves % 2 ? 'kick' : 'punch';
     } else if (Math.abs(dx) >= 130 * size && Math.abs(dx) <= (style === 'ranged' ? 450 : 360) * size &&
@@ -1078,8 +1134,7 @@ function updateBoss(enemy, dt, size) {
   const gap = Math.max(0, Math.abs(dx) - 61 * size);
   const speed = ((enraged ? 235 : 190) + (style === 'swift' ? 53 : style === 'brute' ? -20 : 0))
     * phaseStrength;
-  enemy.x += Math.sign(dx) * Math.min(gap, speed * dt);
-  enemy.altitude += Math.sign(dy) * Math.min(Math.abs(dy), speed * dt);
+  steerEnemy(enemy, Math.sign(dx) * Math.min(gap, speed * dt), airborneHeight, speed * dt, size);
   if (enemy.altitude > 24 * size) return poses[gap > 4 || Math.abs(dy) > 8 ? 2 : 9];
   if (gap <= 4) return poses[0];
   const stride = roster.get(enemy.form.sprite)?.stride ?? [poses[0], poses[1]];
@@ -1087,16 +1142,73 @@ function updateBoss(enemy, dt, size) {
 }
 
 function spawnEnemy(plan, side, width, height, size) {
+  addEnemy(camera.left + (side > 0 ? width - 55 * size : 55 * size),
+    Math.min(world.ceiling, Math.max(plan.altitude, plan.followsFlight ? airborneHeight : 0) + height * 0.08),
+    -side, plan, size);
+}
+
+function addEnemy(position, altitude, direction, plan, size) {
   const meter = enemyHealthTemplate.content.firstElementChild.cloneNode(true);
   if (namek) meter.setAttribute('aria-label', 'Vida do soldado de Freeza');
   game.append(meter);
+  const spawnX = boundedX(position, world.width, 52 * size);
   enemies.push({
     meter, health: meter.max, reaction: null, gone: false,
-    x: boundedX(camera.left + (side > 0 ? width - 55 * size : 55 * size), world.width, 52 * size),
-    altitude: Math.min(world.ceiling, Math.max(plan.altitude, plan.followsFlight ? airborneHeight : 0) + height * 0.08),
+    x: spawnX, altitude: safeTerrainAltitude(terrain, spawnX, altitude, 19 * size, 95 * size),
     minAltitude: plan.altitude, followsFlight: plan.followsFlight,
-    facing: -side, attackTime: null, cooldown: 0,
+    facing: direction, attackTime: null, cooldown: 0,
   });
+}
+
+function updatePatrols(size) {
+  if (!playerCombat.health || opponentsCleared) return;
+  for (const patrol of patrols) {
+    if (patrol.entered || Math.abs(x - patrol.trigger) > 430) continue;
+    patrol.entered = true;
+    for (const [position, altitude] of patrol.positions) {
+      addEnemy(position, altitude, position >= x ? -1 : 1, { altitude: 0, followsFlight: true }, size);
+    }
+  }
+  if (patrols.every((patrol) => patrol.entered) && enemies.length === 0) opponentsCleared = true;
+}
+
+function moveEnemy(enemy, nextX, nextAltitude, size) {
+  const result = moveInTerrain(terrain, enemy.x, enemy.altitude,
+    boundedX(nextX, world.width, 52 * size), Math.min(world.ceiling, nextAltitude), 19 * size, 95 * size);
+  enemy.x = result.x;
+  enemy.altitude = result.altitude;
+}
+
+function steerEnemy(enemy, dx, goal, verticalStep, size) {
+  const half = 19 * size;
+  if (!enemy.detour) {
+    const overhead = terrain.find(([left, right, bottom, top]) => enemy.x + half > left &&
+      enemy.x - half < right && (enemy.altitude + 95 * size <= bottom && goal >= top ||
+        enemy.altitude >= top && goal + 95 * size <= bottom));
+    if (overhead) {
+      const [left, right, bottom, top] = overhead;
+      enemy.detour = {
+        x: enemy.x < (left + right) / 2 ? left - half - 4 : right + half + 4,
+        altitude: goal >= top ? top + 15 : Math.max(0, bottom - 95 * size - 9),
+      };
+    }
+  }
+  if (enemy.detour) {
+    const sideways = enemy.detour.x - enemy.x;
+    const vertical = enemy.detour.altitude - enemy.altitude;
+    if (Math.abs(sideways) > 0.5) {
+      moveEnemy(enemy, enemy.x + Math.sign(sideways) * Math.min(Math.abs(sideways), verticalStep),
+        enemy.altitude, size);
+    } else if (Math.abs(vertical) > 0.5) {
+      moveEnemy(enemy, enemy.x, enemy.altitude + Math.sign(vertical) * Math.min(Math.abs(vertical), verticalStep), size);
+    } else {
+      enemy.detour = null;
+    }
+    return;
+  }
+  const target = pathHeight(terrain, enemy.x, enemy.altitude, x, goal, size);
+  const rise = target - enemy.altitude;
+  moveEnemy(enemy, enemy.x + dx, enemy.altitude + Math.sign(rise) * Math.min(Math.abs(rise), verticalStep), size);
 }
 
 function updateEnemy(enemy, dt, width, height, size) {
@@ -1113,10 +1225,11 @@ function updateEnemy(enemy, dt, width, height, size) {
     return bossPoses(enemy)[9];
   }
   if (enemy.reaction) {
+    let nextX = enemy.x;
     const result = react(enemy, dt, height, (dx) => {
-      enemy.x = boundedX(enemy.x + dx, width, 52 * size);
+      nextX += dx;
     });
-    enemy.altitude = result.altitude;
+    moveEnemy(enemy, nextX, result.altitude, size);
     enemy.gone = result.finished;
     const frames = enemy.boss ? enemy.form.sprite === 'raditz' ? sprites.raditzHit
       : roster.get(enemy.form.sprite).hit : sprites.enemyHit;
@@ -1135,7 +1248,7 @@ function updateEnemy(enemy, dt, width, height, size) {
     const before = enemy.attackTime;
     enemy.attackTime += dt;
     if (before < 0.43 && enemy.attackTime >= 0.43 && !playerCombat.reaction &&
-        inRange(dx, dy, enemy.facing, 76, size)) {
+        inRange(dx, dy, enemy.facing, 76, size) && clearStrike(enemy.x, enemy.altitude, x, airborneHeight, size)) {
       hurtPlayer(15, enemy.facing);
     }
     if (enemy.attackTime < 0.43) return sprites.enemy[2];
@@ -1147,7 +1260,8 @@ function updateEnemy(enemy, dt, width, height, size) {
   }
 
   if (Math.abs(dx) > 2) enemy.facing = Math.sign(dx);
-  if (inRange(dx, dy, enemy.facing, 65, size) && !enemy.cooldown) enemy.attackTime = 0;
+  if (inRange(dx, dy, enemy.facing, 65, size) && !enemy.cooldown &&
+      clearStrike(enemy.x, enemy.altitude, x, airborneHeight, size)) enemy.attackTime = 0;
   const gap = Math.max(0, Math.abs(dx) - 48 * size);
   const travelDirection = Math.sign(dx);
   let travel = Math.min(gap, 145 * dt);
@@ -1158,11 +1272,10 @@ function updateEnemy(enemy, dt, width, height, size) {
       travel = Math.min(travel, Math.max(0, spacing - 29 * size));
     }
   }
-  enemy.x += travelDirection * travel;
   const altitudeTarget = Math.max(height * 0.018, enemy.minAltitude,
     enemy.followsFlight ? airborneHeight : 0);
   const rise = altitudeTarget - enemy.altitude;
-  enemy.altitude += Math.sign(rise) * Math.min(Math.abs(rise), height * 0.47 * dt);
+  steerEnemy(enemy, travelDirection * travel, altitudeTarget, height * 0.47 * dt, size);
   return sprites.enemy[gap > 4 || Math.abs(rise) > 8 ? 1 : 0];
 }
 
@@ -1185,10 +1298,11 @@ function update(dt, width, height, size) {
     return (outfit?.beam ?? sprites.beam)[0];
   }
   if (playerCombat.reaction) {
+    let nextX = x;
     const result = react(playerCombat, dt, height, (dx) => {
-      x = boundedX(x + dx, width, 120 * size);
+      nextX += dx;
     });
-    airborneHeight = result.altitude;
+    movePlayer(nextX, result.altitude, size);
     flightAngle = 0;
     animation = playerCombat.health ? 'hurt' : 'defeated';
     if (result.finished) defeat.hidden = false;
@@ -1207,20 +1321,20 @@ function update(dt, width, height, size) {
   }
   const jumpProgress = jumpElapsed === null ? 0 : jumpElapsed / jumpDuration;
   if (jumpElapsed !== null) {
-    airborneHeight = 4 * (height * 0.13) * jumpProgress * (1 - jumpProgress);
+    const nextHeight = jumpOrigin + 4 * (height * 0.13) * jumpProgress * (1 - jumpProgress);
+    const ascending = nextHeight > airborneHeight;
+    movePlayer(x, nextHeight, size);
+    if (ascending && airborneHeight < nextHeight - 0.015) jumpElapsed = null;
   } else if (flying) {
     if (vertical) liftingOff = false;
-    if (liftingOff) {
-      airborneHeight = Math.min(height * 0.18, airborneHeight + height * dt * 0.8);
-      if (airborneHeight >= height * 0.18) liftingOff = false;
-    }
     const speed = superSaiyan ? activePowerStats().speed : 1;
-    airborneHeight = Math.max(height * 0.035, Math.min(world.ceiling,
-      airborneHeight - vertical * height * dt * verticalFlightSpeed * speed));
-    x += direction * flightSpeed * dt * speed;
+    const nextHeight = liftingOff ? Math.min(liftTarget, airborneHeight + height * dt * 0.8)
+      : airborneHeight - vertical * height * dt * verticalFlightSpeed * speed;
+    movePlayer(x + direction * flightSpeed * dt * speed, nextHeight, size);
+    if (liftingOff && (airborneHeight >= liftTarget || airborneHeight < nextHeight - 0.015)) liftingOff = false;
     if (Math.abs(direction) > 0.12) facing = Math.sign(direction);
   } else {
-    airborneHeight = Math.max(0, airborneHeight - height * 0.8 * dt);
+    movePlayer(x, airborneHeight - height * 0.8 * dt, size);
   }
   if (beam) {
     facing = beam.direction;
@@ -1251,11 +1365,12 @@ function update(dt, width, height, size) {
   } else {
     if (!flying && direction) {
       facing = Math.sign(direction);
-      x += direction * walkSpeed * dt * (superSaiyan ? activePowerStats().speed : 1);
+      movePlayer(x + direction * walkSpeed * dt * (superSaiyan ? activePowerStats().speed : 1),
+        airborneHeight, size);
     }
     if (flying) {
       next = direction || vertical ? 'fly' : 'hover';
-    } else if (jumpElapsed !== null || airborneHeight > 0) {
+    } else if (jumpElapsed !== null || airborneHeight > playerFloor(size) + 0.015) {
       next = 'jump';
       frameIndex = jumpElapsed === null ? 3 : Math.floor(jumpProgress * sprites.jump.length);
     } else if (direction) {
@@ -1373,87 +1488,92 @@ function drawGround(width, height, floor) {
   }
 }
 
-function drawExit(width, floor) {
-  if (exit.x + 47 < camera.left || exit.x - 47 > camera.left + width) return;
-  const left = exit.x - 43;
-  const top = floor - 122;
-  context.fillStyle = '#4c473c';
-  context.fillRect(left, top, 86, 122);
-  context.fillStyle = '#b49a74';
-  context.fillRect(left + 3, top, 80, 21);
-  context.fillRect(left + 3, top + 20, 13, 102);
-  context.fillRect(left + 70, top + 20, 13, 102);
-  context.fillStyle = exit.unlocked ? '#6cd2b4' : '#383c39';
-  context.fillRect(left + 17, top + 22, 52, 100);
-  context.fillStyle = exit.unlocked ? '#c8fbd2' : '#847962';
-  if (exit.unlocked) {
-    context.fillRect(left + 24, top + 31, 38, 88);
-    context.fillStyle = '#eaffde';
-    context.fillRect(left + 31, top + 45, 24, 66);
-  } else {
-    for (let offset = 22; offset < 66; offset += 11) {
-      context.fillRect(left + offset, top + 24, 3, 98);
-    }
-    context.fillRect(left + 17, top + 65, 52, 6);
-  }
-}
-
 function drawDragonBalls(width, floor, time) {
-  if (!exit.unlocked || exit.reached || exit.x + 86 < camera.left || exit.x - 86 > camera.left + width) return;
-  context.fillStyle = '#485e57';
-  context.fillRect(exit.x - 77, floor - 9, 154, 9);
-  context.fillStyle = '#b8dcb9';
-  context.fillRect(exit.x - 77, floor - 11, 154, 3);
-  for (let index = 0; index < 7; index++) {
-    const px = exit.x + (index - 3) * 20;
-    const py = floor - 25 - Math.sin(time / 300 + index * 0.7) * 3;
+  for (const ball of dragonBalls) {
+    if (ball.found || ball.x < camera.left - 20 || ball.x > camera.left + width + 20) continue;
+    const px = ball.x;
+    const py = floor - ball.y - Math.sin(time / 260 + ball.stars) * 3;
     context.fillStyle = '#713515';
     context.beginPath();
-    context.arc(px, py, 9, 0, Math.PI * 2);
+    context.arc(px, py, 11, 0, Math.PI * 2);
     context.fill();
     context.fillStyle = '#ffad36';
     context.beginPath();
-    context.arc(px, py, 7.6, 0, Math.PI * 2);
+    context.arc(px, py, 9.5, 0, Math.PI * 2);
     context.fill();
     context.fillStyle = '#fff0a3';
-    context.fillRect(px - 4, py - 5, 3, 2);
+    context.fillRect(px - 5, py - 6, 4, 2);
     context.fillStyle = '#a82b1e';
-    for (let star = 0; star <= index; star++) {
-      const angle = star * Math.PI * 2 / (index + 1) - Math.PI / 2;
-      const radius = index ? 3.5 : 0;
-      const sx = Math.round(px + Math.cos(angle) * radius);
-      const sy = Math.round(py + Math.sin(angle) * radius);
+    for (let star = 0; star < ball.stars; star++) {
+      const angle = star * Math.PI * 2 / ball.stars - Math.PI / 2;
+      const orbit = ball.stars > 1 ? 4.5 : 0;
+      const sx = Math.round(px + Math.cos(angle) * orbit);
+      const sy = Math.round(py + Math.sin(angle) * orbit);
       context.fillRect(sx - 1, sy, 3, 1);
       context.fillRect(sx, sy - 1, 1, 3);
     }
   }
 }
 
-function nearExit() {
-  return exit.unlocked && !exit.reached && playerCombat.health &&
-    Math.abs(x - exit.x) < 69 && airborneHeight < 55;
-}
-
-function completeStage(message) {
-  exit.reached = true;
-  victoryMessage.textContent = message;
+function completeStage() {
+  if (finished || !playerCombat.health) return;
+  finished = true;
+  const { balls, seeds, enemies: defeated, damage } = stageStats;
+  const score = defeated * 500 + balls * 250 + seeds * 100 + Math.max(0, 1000 - damage * 8);
+  const extra = Math.max(0, defeated - 1);
+  const stars = damage <= 28 + extra * 5 ? 3 : damage <= 70 + extra * 10 ? 2 : 1;
+  document.querySelector('#result-balls').textContent = balls;
+  document.querySelector('#result-seeds').textContent = seeds;
+  document.querySelector('#result-enemies').textContent = defeated;
+  document.querySelector('#result-score').textContent = score.toLocaleString('pt-BR');
+  victoryMessage.textContent = 'Fase concluída';
+  showStars(document.querySelector('#result-stars'), stars);
+  recordCompletedLevel({ score, stars });
+  resetInputs();
   stageComplete.hidden = false;
   collectBalls.hidden = true;
-  recordCompletedLevel();
+  pickUp.hidden = true;
+  waveStatus.hidden = true;
+  game.classList.add('finished');
+  document.querySelector('#back-to-levels').focus({ preventScroll: true });
+}
+
+function findNearbyBall() {
+  return dragonBalls.find((ball) => !ball.found && Math.abs(ball.x - x) < 52 &&
+    Math.abs(ball.y - (airborneHeight + 20)) < 52 &&
+    closestTerrainHit(terrain, x, airborneHeight + 20, ball.x, ball.y) === 1);
 }
 
 collectBalls.addEventListener('click', () => {
-  if (namek && nearExit() && canUseItem()) completeStage('7 Esferas do Dragão reunidas');
+  if (finished || !canUseItem()) return;
+  const ball = findNearbyBall();
+  if (!ball) return;
+  ball.found = true;
+  stageStats.balls++;
+  collectBalls.hidden = true;
+  showNotice('Esfera de ' + ball.stars + (ball.stars === 1 ? ' estrela' : ' estrelas') + ' coletada.');
 });
 
 function updateStageStatus() {
-  collectBalls.hidden = !namek || !nearExit() || !canUseItem();
-  if (!namek && nearExit()) completeStage('Fase concluída');
-  const label = 'Onda ' + (wave.index + 1) + '/' + waves.length;
-  let text = label;
-  if (!bossLevel) {
+  const nearbyBall = namek && playerCombat.health ? findNearbyBall() : null;
+  collectBalls.hidden = !nearbyBall || !canUseItem();
+  if (nearbyBall && !collectBalls.hidden) pickUp.hidden = true;
+  if (opponentsCleared && (!namek || stageStats.balls === dragonBalls.length)) {
+    completeStage();
+    return;
+  }
+  let text;
+  if (namek) {
+    const total = patrols.reduce((sum, patrol) => sum + patrol.positions.length, 0);
+    text = 'Patrulheiros derrotados ' + stageStats.enemies + '/' + total;
+    if (opponentsCleared) text = 'Encontre as esferas restantes';
+    radarCount.hidden = false;
+    const reading = stageStats.balls + '/' + dragonBalls.length + ' esferas';
+    if (radarCount.textContent !== reading) radarCount.textContent = reading;
+  } else if (training) {
+    text = 'Onda ' + (wave.index + 1) + '/' + waves.length;
     if (wave.resting) text += ' · Intervalo';
-    else if (training && wave.index === 2) text += ' · Voe para combater';
+    else if (wave.index === 2) text += ' · Voe para combater';
     else if (!wave.spawned) text += ' · Prepare-se';
   } else {
     text = !boss ? encounters[encounterIndex]?.name + ' se aproxima' : boss.transition !== null
@@ -1461,9 +1581,7 @@ function updateStageStatus() {
       : boss.health <= bossHealth.max / 2 && boss.health > 0
         ? boss.encounter.name + ' intensificou os ataques' : '';
   }
-  if (exit.unlocked) text = namek ? 'Esferas liberadas · Siga à direita'
-    : training ? 'Saída liberada · Siga à direita' : boss.encounter.name + ' derrotado · Siga à direita';
-  waveStatus.hidden = !text || exit.reached || !playerCombat.health;
+  waveStatus.hidden = !text || finished || !playerCombat.health;
   if (waveStatus.textContent !== text) waveStatus.textContent = text;
 }
 
@@ -1527,7 +1645,7 @@ function drawScene(dt, width, height, groundLine, size, density) {
 
 function render(time) {
   requestAnimationFrame(render);
-  if (pauseMenu.open || !landscape.matches || document.hidden) return;
+  if (finished || pauseMenu.open || !landscape.matches || document.hidden) return;
   const width = canvas.clientWidth;
   const height = canvas.clientHeight;
   const density = window.devicePixelRatio || 1;
@@ -1577,6 +1695,7 @@ function render(time) {
     updateSeed(dt, groundLine, size);
     updateBlasts(dt, world.width, size);
     if (bossLevel) updateBossBattle(dt, width, size);
+    else if (namek) updatePatrols(size);
     else updateWaves(dt, width, height, size);
     if (beam) applyBeam(width, size);
   }
@@ -1603,8 +1722,9 @@ function render(time) {
   drawLandscape(width, height, groundLine);
   context.translate(-camera.left, 0);
   drawGround(width, height, floor);
+  paintTerrain(context, terrain, camera.left, width, height, floor, namek);
   if (namek) drawDragonBalls(width, floor, time);
-  else drawExit(width, floor);
+  paintDragonRadar(radarContext, world, terrain, x, airborneHeight, dragonBalls, enemies);
   if (!seed.collected && seed.altitude !== null) {
     drawSeed(seed.position, floor - seed.altitude - 4 * size, size * 0.68);
   }
