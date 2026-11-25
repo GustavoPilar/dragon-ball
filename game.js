@@ -103,6 +103,7 @@ const chargeSpeed = 40;
 const blastCost = 10;
 const beamCost = 40;
 const beamDuration = 2;
+const beamTickInterval = 0.25;
 const beamChargeDuration = 0.85;
 const transformDuration = 1.1;
 const superDrain = 8;
@@ -387,7 +388,7 @@ function tryKiAttack(action) {
   if (isBeam) {
     beam = {
       direction: facing, elapsed: -beamChargeDuration, damage: attackDamage(75),
-      targets: new WeakSet(), disc: hero === 'krillin', colors: techniqueColors[beamButton.title],
+      targets: new WeakMap(), disc: hero === 'krillin', colors: techniqueColors[beamButton.title],
     };
     addKi(-beamCost);
     lastJumpPress = -Infinity;
@@ -607,7 +608,7 @@ function enforceFlightRestriction() {
   if (playerCombat.health) showNotice(restriction);
 }
 
-function damage(target, amount, direction, altitude) {
+function damage(target, amount, direction, altitude, stagger = true) {
   target.health = Math.max(0, target.health - amount);
   if (target === playerCombat) {
     updateHealthMeter();
@@ -616,6 +617,7 @@ function damage(target, amount, direction, altitude) {
   } else {
     target.meter.value = target.health;
     if (target.boss) updateBossHealthBar(target);
+    if (target.health && !stagger) return;
     if (target.boss && target.health && (target.attackTime !== null || target.staggerCooldown > 0)) {
       return;
     }
@@ -651,10 +653,10 @@ function resolveAttack(name, size) {
   }
 }
 
-function hitEnemy(enemy, amount, direction) {
+function hitEnemy(enemy, amount, direction, stagger = true) {
   const previousReaction = enemy.reaction;
-  damage(enemy, amount, direction, enemy.altitude);
-  if (enemy.boss && enemy.health && enemy.reaction === previousReaction) return;
+  damage(enemy, amount, direction, enemy.altitude, stagger);
+  if (enemy.health && enemy.reaction === previousReaction) return;
   enemy.attackTime = null;
   enemy.cooldown = enemy.boss ? 0.18 : 0.4;
   if (enemy.boss && !enemy.health && enemy.phase + 1 < enemy.encounter.forms.length) {
@@ -745,15 +747,27 @@ function applyBeam(width, size) {
   const origin = beamOrigin(width, size);
   const range = Math.abs(origin.end - origin.x);
   const discTravel = beam.elapsed * 620;
+  const tick = Math.floor(beam.elapsed / beamTickInterval);
+  const ticks = beamDuration / beamTickInterval;
   for (const enemy of enemies) {
     const ahead = (enemy.x - origin.x) * beam.direction;
     const altitude = origin.altitude - enemy.altitude;
-    if (!enemy.health || beam.targets.has(enemy) || (enemy.x - x) * beam.direction < 0 ||
+    if (!enemy.health || (enemy.x - x) * beam.direction < 0 ||
         ahead < -32 * size || ahead > range ||
         altitude < -5 * size || altitude > 125 * size) continue;
-    if (beam.disc && Math.abs(ahead - discTravel) > 32 * size + 16) continue;
-    beam.targets.add(enemy);
-    hitEnemy(enemy, beam.damage, beam.direction);
+    const previous = beam.targets.get(enemy);
+    if (beam.disc) {
+      if (previous || Math.abs(ahead - discTravel) > 32 * size + 16) continue;
+      beam.targets.set(enemy, { hits: 1 });
+      hitEnemy(enemy, beam.damage, beam.direction);
+      continue;
+    }
+    if (previous?.tick === tick) continue;
+    const hits = previous?.hits ?? 0;
+    const amount = Math.floor((hits + 1) * beam.damage / ticks) -
+      Math.floor(hits * beam.damage / ticks);
+    beam.targets.set(enemy, { tick, hits: hits + 1 });
+    hitEnemy(enemy, amount, beam.direction, hits === 0);
   }
 }
 
@@ -1067,7 +1081,9 @@ function updateBoss(enemy, dt, size) {
   enemy.x += Math.sign(dx) * Math.min(gap, speed * dt);
   enemy.altitude += Math.sign(dy) * Math.min(Math.abs(dy), speed * dt);
   if (enemy.altitude > 24 * size) return poses[gap > 4 || Math.abs(dy) > 8 ? 2 : 9];
-  return poses[gap > 4 ? Math.floor(enemy.x / 38) % 2 : 0];
+  if (gap <= 4) return poses[0];
+  const stride = roster.get(enemy.form.sprite)?.stride ?? [poses[0], poses[1]];
+  return stride[Math.floor(enemy.x / 28) % stride.length];
 }
 
 function spawnEnemy(plan, side, width, height, size) {
@@ -1635,7 +1651,7 @@ function render(time) {
   if (playerFrame) drawFighter(playerFrame, x, floor - airborneHeight, facing, size, flightAngle);
   if (itemAction?.type === 'pickup' && animation === 'pickup' && itemAction.elapsed >= 0.23) {
     const hover = Math.sin(itemAction.elapsed * 10) * 4 * size;
-    const handHeight = playerFrame.frame.height * playerFrame.scale;
+    const handHeight = playerFrame.bodyHeight ?? playerFrame.frame.height * playerFrame.scale;
     drawSeed(x - facing * 19 * size, floor - airborneHeight - (handHeight + 10) * size + hover, size * 0.78);
   }
   if (beam?.elapsed < 0) drawBeamCharge(floor, size);
@@ -1662,20 +1678,33 @@ function drawFighter({ frame, scale, lean = 0, stretch = 1, rise = 0, shift = 0 
 
 function deriveFighterPoses(frame, height) {
   const base = { frame, scale: height / frame.height };
-  const walk = { ...base, lean: 0.08, rise: 4, shift: 4 };
-  const fly = { ...base, lean: 1.04, rise: -14 };
-  const wind = { ...base, lean: -0.15, shift: -9 };
-  const punch = { ...base, lean: 0.32, stretch: 1.1, shift: 13 };
-  const kick = { ...base, lean: 0.54, stretch: 1.12, shift: 12 };
-  const channel = { ...base, lean: -0.1, stretch: 1.04, rise: 2 };
-  const release = { ...base, lean: 0.16, stretch: 1.08, shift: 8 };
-  const hover = { ...base, rise: 7 };
-  const recoil = { ...base, lean: -0.28, shift: -9 };
-  const falling = { ...base, lean: -0.65, rise: 7 };
-  const down = { ...base, lean: -Math.PI / 2, rise: -height * 0.25 };
+  const pose = (name, placement) => ({
+    get frame() { return spriteMotion(frame, name); },
+    scale: height / Math.min(frame.height, 168),
+    bodyHeight: height,
+    ...placement,
+  });
+  const walk = pose('stepA', { lean: 0.09, rise: 2, shift: 3 });
+  const otherStep = pose('stepB', { lean: 0.04, rise: 4 });
+  const fly = pose('flight', { lean: 0.97, rise: -14 });
+  const wind = pose('windup', { lean: -0.14, shift: -7 });
+  const punch = pose('punch', { lean: 0.21, shift: 12 });
+  const kick = pose('kick', { lean: 0.14, shift: 8 });
+  const channel = pose('charge', { lean: -0.12, rise: 2 });
+  const release = pose('fire', { lean: 0.15, shift: 8 });
+  const hover = pose('hover', { rise: 5 });
+  const recoil = pose('hurt', { lean: -0.26, shift: -8 });
+  const falling = pose('fall', { lean: -0.59, rise: 4 });
+  const down = pose('settle', { lean: -Math.PI / 2, rise: -height * 0.20 });
+  const crouch = pose('crouch');
+  const recovery = pose('settle', { lean: 0.12, shift: 3 });
   return {
-    boss: [base, walk, fly, wind, punch, base, kick, channel, release, hover],
+    boss: [base, walk, fly, wind, punch, recovery, kick, channel, release, hover],
     hit: [recoil, falling, falling, down, down],
+    stride: [walk, base, otherStep, recovery],
+    jump: [crouch, pose('jump', { rise: 4 }), pose('fall', { lean: 0.12 }), recovery],
+    look: [pose('lookUp'), pose('lookDown')],
+    items: [crouch, pose('lift'), pose('pouch'), pose('eat')],
   };
 }
 
@@ -1689,17 +1718,22 @@ function campaignPlayerPose(normalFrame, visualPower) {
     const time = playerCombat.reaction?.time ?? 0;
     return player.hit[animation === 'hurt' ? Number(time > 0.16) : Math.min(4, Math.floor(time / 0.21))];
   }
-  if (animation === 'walk') return poses[Math.floor(animationTime * 12) % 2];
+  if (animation === 'walk') return player.stride[Math.floor(animationTime * 12) % player.stride.length];
   if (animation === 'fly') return poses[2];
-  if (animation === 'jump' || animation === 'hover') return poses[9];
+  if (animation === 'hover') return poses[9];
+  if (animation === 'jump') {
+    return player.jump[jumpElapsed === null ? 2 : Math.min(3, Math.floor(jumpElapsed / jumpDuration * 4))];
+  }
   if (animation === 'punch' || animation === 'kick' || animation === 'blast') {
     if (attack?.elapsed < attackFrameTime * 2) return poses[3];
+    if (attack?.elapsed >= attackFrameTime * 3.5) return poses[5];
     return poses[animation === 'kick' ? 6 : animation === 'blast' ? 8 : 4];
   }
   if (animation === 'beam') return poses[8];
-  if (animation === 'beamCharge' || animation === 'charge' || animation === 'transform' || animation === 'eat') return poses[7];
-  if (animation === 'pickup') return poses[itemAction?.elapsed < 0.23 ? 3 : 9];
-  if (animation === 'lookUp' || animation === 'lookDown') return poses[animation === 'lookUp' ? 3 : 1];
+  if (animation === 'beamCharge' || animation === 'charge' || animation === 'transform') return poses[7];
+  if (animation === 'eat') return player.items[itemAction?.elapsed < 0.32 ? 2 : 3];
+  if (animation === 'pickup') return player.items[Number(itemAction?.elapsed >= 0.23)];
+  if (animation === 'lookUp' || animation === 'lookDown') return player.look[Number(animation === 'lookDown')];
   return poses[0];
 }
 
@@ -1725,7 +1759,7 @@ async function loadRoster() {
         if (!needed.has(id) || roster.has(id)) return;
         const { frame } = poses[column];
         const boss = deriveFighterPoses(frame, small.has(id) ? 118 : tall.has(id) ? 203 : 170);
-        roster.set(id, { boss: boss.boss, hit: boss.hit,
+        roster.set(id, { boss: boss.boss, hit: boss.hit, stride: boss.stride,
           player: deriveFighterPoses(frame, small.has(id) ? 116 : 142) });
       });
     }
@@ -1735,10 +1769,10 @@ async function loadRoster() {
 
 async function loadFightMotion() {
   const frieza = selectedLevel?.id === 'freeza';
-  const heroes = ['piccolo', 'krillin', 'kidGohan'];
-  const [friezaArt, heroArt] = await Promise.all([
+  const sheets = drawnMotionSheets.filter(({ ids }) => ids.some((id) => roster.has(id)));
+  const [friezaArt, ...art] = await Promise.all([
     frieza ? loadImage('assets/freeza-motion.png') : null,
-    heroes.some((id) => roster.has(id)) ? loadImage('assets/hero-motion.png') : null,
+    ...sheets.map(({ path }) => loadImage(path)),
   ]);
   if (friezaArt) {
     const columns = [
@@ -1755,6 +1789,7 @@ async function loadFightMotion() {
       const movement = deriveFighterPoses(idle.frame, height);
       entry.boss = movement.boss;
       entry.hit = movement.hit;
+      entry.stride = movement.stride;
       entry.boss[2] = { ...flight, rise: height * 0.14 };
       entry.boss[4] = strike;
       entry.boss[6] = strike;
@@ -1762,20 +1797,25 @@ async function loadFightMotion() {
       entry.boss[8] = release;
     });
   }
-  if (heroArt) {
-    const columns = [0, 281, 640, 999, 1287, 1619];
-    heroes.forEach((id, row) => {
+  sheets.forEach(({ ids, columns, rows }, index) => {
+    ids.forEach((id, row) => {
       if (!roster.has(id)) return;
-      const motions = readRow(heroArt, columns, Math.round(heroArt.height * row / 3),
-        Math.round(heroArt.height * (row + 1) / 3), 1, true);
-      const entry = roster.get(id).player;
-      const height = entry.boss[0].frame.height * entry.boss[0].scale;
-      const scale = height / Math.max(motions[0].frame.height, motions[2].frame.height, motions[4].frame.height);
-      for (const [index, pose] of motions.entries()) {
-        const slot = [1, 2, 4, 6, 8][index];
-        entry.boss[slot] = { ...pose, scale, rise: index === 1 ? height * 0.12 : 0 };
-      }
+      const motions = readRow(art[index], columns, rows[row], rows[row + 1], 1, true);
+      const entry = roster.get(id);
+      applyDrawnMotions(entry, motions);
+      applyDrawnMotions(entry.player, motions);
     });
+  });
+}
+
+function applyDrawnMotions(entry, motions) {
+  const height = entry.boss[0].frame.height * entry.boss[0].scale;
+  const drawnHeight = Math.max(motions[0].frame.height, motions[2].frame.height, motions.at(-1).frame.height);
+  const scale = height / drawnHeight;
+  for (const [index, pose] of motions.entries()) {
+    const slot = [1, 2, 4, 6, 8][index];
+    entry.boss[slot] = { ...pose, scale, rise: index === 1 ? height * 0.12 : 0 };
+    if (index === 0) entry.stride[0] = entry.boss[slot];
   }
 }
 
