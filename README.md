@@ -4,21 +4,27 @@ Jogo web de luta com 23 fases jogáveis nas sagas Saiyajin, Freeza, Androids/Cel
 
 | Ação | Tela | Teclado |
 | --- | --- | --- |
-| Andar | Arraste o joystick para os lados | ← ou → |
-| Olhar para cima ou para baixo | Arraste o joystick na vertical, no chão | ↑ ou ↓ |
+| Andar | Arraste o joystick para os lados | ← / → ou A / D |
+| Olhar para cima ou para baixo | Arraste o joystick na vertical, no chão | ↑ / ↓ ou W / S |
 | Pular | Toque em Pular | Espaço |
-| Voar ou pousar | Toque duas vezes rapidamente em Pular | Espaço duas vezes rapidamente |
-| Mover-se em voo | Arraste o joystick em qualquer direção | Setas |
+| Voar ou pousar | Toque duas vezes rapidamente em Pular | F ou Espaço duas vezes rapidamente |
+| Mover-se em voo | Arraste o joystick em qualquer direção | Setas ou WASD |
 | Socar | Toque em Soco | Z |
 | Chutar | Toque em Chute | X |
 | Carregar ki | Segure Ki até 100% | Segure C |
 | Disparar uma esfera de ki | Toque em Poder | V |
 | Disparar Kamehameha | Toque em Kame | B |
 | Ativar forma especial | Toque no botão de forma quando ele aparecer | T |
+| Pegar uma semente ou Esfera do Dragão | Toque no botão de coleta | E |
+| Usar a Semente dos Deuses | Toque no primeiro espaço do inventário | 1 |
+| Pausar / reiniciar no menu de pausa | Toque em Pausar / Reiniciar | P ou Esc / R |
+| Avançar / pular uma cena | Toque no diálogo / Pular cena | Enter ou Espaço / Esc |
 
-O jogo fica disponível com a tela na horizontal. O botão de tela cheia solicita o bloqueio da orientação quando o navegador oferece suporte.
+Em celulares, jogue com a tela na horizontal. O botão de tela cheia solicita o bloqueio da orientação quando o navegador oferece suporte.
 
 Na Saga Saiyajin, **A chegada de Raditz** começa com uma cena que pode ser avançada pelo diálogo ou pulada. Raditz tem 360 de vida, luta no chão e no ar e usa socos, chutes e disparos de ki. Seus ataques ficam mais rápidos abaixo de metade da vida.
+
+Na batalha contra Raditz, esferas opostas se cancelam. Feixes destroem esferas e podem conter um feixe adversário na mesma linha. Raditz carrega o próprio ki e usa **Saturday Crush** (6 de ki) e o feixe duplo **Double Sunday** (26 de ki). Nesta fase, o salto é mais alto e o voo está disponível mesmo com vida ou ki baixos.
 
 A campanha alterna personagens conforme o confronto, incluindo Piccolo, Kuririn, Gohan, Vegeta, Trunks, Gotenks e Vegetto. Goku pode usar Kaioken antes de Freeza. O primeiro Super Saiyajin de Goku é liberado na forma final de Freeza. As formas especiais iniciais exigem 100 de ki. Evoluções seguintes exigem pelo menos 55 e só ficam disponíveis nas fases previstas.
 

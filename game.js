@@ -10,7 +10,7 @@ const restart = document.querySelector('#restart');
 const pickUp = document.querySelector('#pick-up');
 const seedSlot = document.querySelector('#seed-slot');
 const seedCount = document.querySelector('#seed-count');
-const landscape = matchMedia('(orientation: landscape)');
+const portraitTouch = matchMedia('(orientation: portrait) and (pointer: coarse)');
 const buttons = [...document.querySelectorAll('[data-action]')];
 const jumpButton = document.querySelector('[data-action="jump"]');
 const joystick = document.querySelector('#joystick');
@@ -26,6 +26,9 @@ const stageComplete = document.querySelector('#stage-complete');
 const bossHud = document.querySelector('#boss-hud');
 const bossHealth = document.querySelector('#boss-health');
 const bossHealthValue = document.querySelector('#boss-health-value');
+const bossKi = document.querySelector('#boss-ki');
+const bossKiRow = document.querySelector('#boss-ki-row');
+const bossKiValue = document.querySelector('#boss-ki-value');
 const bossName = document.querySelector('#boss-name');
 const bossSegments = document.querySelector('#boss-segments');
 const heroHealthName = document.querySelector('#hero-health-name');
@@ -43,6 +46,7 @@ let pendingPower = null;
 const trainingPower = power('gokuSsj', 'Super Saiyajin');
 const roster = new Map();
 game.classList.toggle('boss-campaign', bossLevel);
+game.classList.toggle('raditz-stage', raditzLevel);
 if (raditzLevel) canvas.setAttribute('aria-label', 'Campo aberto da luta contra Raditz');
 if (namek) canvas.setAttribute('aria-label', 'Campos de Namek');
 if (bossLevel && !raditzLevel) canvas.setAttribute('aria-label', selectedLevel.title);
@@ -79,18 +83,27 @@ selectHero(hero);
 const cutscene = document.querySelector('#cutscene');
 const sceneDialogue = document.querySelector('#scene-dialogue');
 const sceneLines = [
-  ['Raditz', 'Kakarotto. Demorou para eu encontrar você.'],
-  ['Goku', 'Meu nome é Goku. Quem é você?'],
-  ['Raditz', 'Seu irmão. Quero ver se ainda se lembra de como um Saiyajin luta.'],
-  ['Goku', 'Você fica longe do meu filho. Se quer lutar, estou aqui.'],
+  ['Raditz', 'Kakarotto! Seu filho está na minha nave. Quer vê-lo de novo?'],
+  ['Gohan', 'Papai! Estou aqui dentro!'],
+  ['Goku', 'Gohan, aguente firme. Eu vou tirar você daí.'],
+  ['Piccolo', 'O garoto está preso na cápsula. Vou ficar de olho nele enquanto você enfrenta Raditz.'],
+  ['Raditz', 'Então vamos ver do que vocês são capazes.'],
+  ['Goku', 'Solte meu filho, Raditz!'],
 ];
 const scene = { active: raditzLevel, line: 0, time: 0, stepTime: 0 };
 let raditzEntranceX;
+let raditzRescueElapsed = 0;
+let raditzSuper = null;
+let energyClash = null;
+const clashSparks = [];
+const raditzBlastCost = 6;
+const raditzSuperCost = 26;
 
 const keys = new Map([
   ['ArrowLeft', 'left'], ['ArrowRight', 'right'],
   ['ArrowUp', 'up'], ['ArrowDown', 'down'],
-  ['Space', 'jump'],
+  ['KeyA', 'left'], ['KeyD', 'right'], ['KeyW', 'up'], ['KeyS', 'down'],
+  ['Space', 'jump'], ['KeyF', 'flight'],
   ['KeyZ', 'punch'], ['KeyX', 'kick'], ['KeyC', 'charge'], ['KeyV', 'blast'],
   ['KeyB', 'beam'],
   ['KeyT', 'transform'],
@@ -140,7 +153,7 @@ const flightKiMinimum = 10;
 const criticalHealth = 25;
 const attackFrameTime = 0.085;
 const doubleTapTime = 350;
-const jumpDuration = 0.65;
+const jumpDuration = raditzLevel ? 0.75 : 0.65;
 const stick = { pointerId: null, x: 0, y: 0 };
 const playerCombat = { health: 100, reaction: null };
 const enemies = [];
@@ -161,6 +174,8 @@ const raditzAttacks = {
   punch: { windup: 0.47, reach: 88, damage: 13, start: 3, strike: 4 },
   kick: { windup: 0.61, reach: 110, damage: 17, start: 3, strike: 6 },
   blast: { windup: 0.82, damage: 20, start: 7, strike: 8 },
+  super: { windup: 1.02, damage: 11, start: 7, strike: 8 },
+  charge: { windup: 0.62, start: 9, strike: 9 },
 };
 const wave = { index: 0, spawned: 0, countdown: 2.5, resting: false };
 let boss = null;
@@ -284,7 +299,7 @@ function resetStick() {
 }
 
 joystick.addEventListener('pointerdown', (event) => {
-  if (event.button !== 0 || stick.pointerId !== null || !sprites || !landscape.matches || !playerCombat.health) return;
+  if (event.button !== 0 || stick.pointerId !== null || !sprites || portraitTouch.matches || !playerCombat.health) return;
   event.preventDefault();
   stick.pointerId = event.pointerId;
   joystick.setPointerCapture(event.pointerId);
@@ -309,6 +324,7 @@ function showNotice(message) {
 }
 
 function flightRestriction() {
+  if (raditzLevel) return '';
   if (playerCombat.health <= criticalHealth) return heroNames[hero] + ' está ferido demais para voar.';
   if (ki < flightKiMinimum) return 'Carregue pelo menos 10% de ki para voar.';
   return '';
@@ -336,16 +352,20 @@ function movePlayer(nextX, nextAltitude, size) {
   airborneHeight = next.altitude;
 }
 
+function toggleFlight() {
+  lastJumpPress = -Infinity;
+  const restriction = flying ? '' : flightRestriction();
+  if (restriction) {
+    showNotice(restriction);
+    return;
+  }
+  setFlying(!flying);
+  jumpElapsed = null;
+}
+
 function triggerJump(now) {
   if (now - lastJumpPress <= doubleTapTime) {
-    lastJumpPress = -Infinity;
-    const restriction = flying ? '' : flightRestriction();
-    if (restriction) {
-      showNotice(restriction);
-      return;
-    }
-    setFlying(!flying);
-    jumpElapsed = null;
+    toggleFlight();
     return;
   }
   lastJumpPress = now;
@@ -357,7 +377,7 @@ function triggerJump(now) {
 }
 
 function press(input, action) {
-  if (finished || scene.active || pauseMenu.open || !landscape.matches || !sprites || !playerCombat.health || heldInputs.has(input)) return;
+  if (finished || scene.active || pauseMenu.open || portraitTouch.matches || !sprites || !playerCombat.health || heldInputs.has(input)) return;
   heldInputs.set(input, action);
   if (itemAction || transforming !== null) return;
   if (action === 'transform') {
@@ -391,7 +411,10 @@ function press(input, action) {
     syncButtons();
     return;
   }
-  if (action === 'jump' && !playerCombat.reaction) triggerJump(performance.now());
+  if (!playerCombat.reaction) {
+    if (action === 'jump') triggerJump(performance.now());
+    if (action === 'flight') toggleFlight();
+  }
   if ((action === 'punch' || action === 'kick') && !playerCombat.reaction && !attack &&
       (superSaiyan || !active('charge'))) {
     attack = { name: action, elapsed: 0 };
@@ -453,7 +476,7 @@ for (const button of buttons) {
     button.addEventListener(event, ({ pointerId }) => release(pointerId));
   }
   button.addEventListener('keydown', (event) => {
-    if (event.code !== 'Space' && event.code !== 'Enter') return;
+    if (event.ctrlKey || event.metaKey || event.altKey || (event.code !== 'Space' && event.code !== 'Enter')) return;
     event.preventDefault();
     event.stopPropagation();
     if (!event.repeat) press(event.code, button.dataset.action);
@@ -461,11 +484,38 @@ for (const button of buttons) {
 }
 
 window.addEventListener('keydown', (event) => {
-  if (!playing || scene.active) return;
-  const action = keys.get(event.code);
-  if (!action) return;
-  event.preventDefault();
-  if (!event.repeat) press(event.code, action);
+  if (!playing || event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
+  const { code } = event;
+  if (scene.active) {
+    const sceneAction = {
+      Enter: event.target === document.querySelector('#skip-scene') ? finishScene : advanceScene,
+      Space: event.target === document.querySelector('#skip-scene') ? finishScene : advanceScene,
+      Escape: finishScene,
+    }[code];
+    if (!sceneAction) return;
+    event.preventDefault();
+    if (!event.repeat) sceneAction();
+    return;
+  }
+  if (pauseMenu.open) {
+    if (code === 'KeyR' && !event.repeat) restart.click();
+    return;
+  }
+  if (finished || portraitTouch.matches) return;
+  const action = keys.get(code);
+  if (action) {
+    if (code === 'Space' && event.target.closest?.('button, a')) return;
+    event.preventDefault();
+    if (!event.repeat) press(code, action);
+    return;
+  }
+  const shortcut = {
+    KeyE: [collectBalls, pickUp].find((button) => !button.hidden),
+    Digit1: seedSlot,
+    KeyP: pause,
+    Escape: document.fullscreenElement ? null : pause,
+  }[code];
+  if (shortcut && !event.repeat) shortcut.click();
 });
 window.addEventListener('keyup', (event) => release(event.code));
 window.addEventListener('blur', resetInputs);
@@ -479,14 +529,15 @@ for (const event of ['contextmenu', 'selectstart']) {
 for (const event of ['gesturestart', 'gesturechange']) {
   document.addEventListener(event, (event) => event.preventDefault(), { passive: false });
 }
-landscape.addEventListener('change', () => {
+portraitTouch.addEventListener('change', () => {
   resetInputs();
-  if (landscape.matches && scene.active && !cutscene.hidden) sceneDialogue.focus();
+  if (!portraitTouch.matches && scene.active && !cutscene.hidden) sceneDialogue.focus();
 });
 
 pause.addEventListener('click', () => {
   pauseMenu.showModal();
   game.classList.add('paused');
+  lastJumpPress = -Infinity;
   heldInputs.clear();
   resetStick();
   syncButtons();
@@ -546,7 +597,7 @@ function updateHealthMeter() {
 }
 
 function canUseItem() {
-  return !finished && landscape.matches && !pauseMenu.open && playerCombat.health && !playerCombat.reaction &&
+  return !finished && !portraitTouch.matches && !pauseMenu.open && playerCombat.health && !playerCombat.reaction &&
     !itemAction && !attack && !beam && transforming === null;
 }
 
@@ -682,7 +733,8 @@ function resolveAttack(name, size) {
     if (ki < blastCost) return;
     const amount = attackDamage(35);
     addKi(-blastCost);
-    blasts.push({ x: x + facing * 49 * size, altitude: airborneHeight + 96 * size, direction: facing, damage: amount });
+    blasts.push({ x: x + facing * 49 * size, altitude: airborneHeight + 96 * size,
+      direction: facing, damage: amount, speed: raditzLevel ? 760 : 640 });
     return;
   }
   const isKick = name === 'kick';
@@ -722,6 +774,7 @@ function hurtPlayer(amount, direction) {
   setFlying(false);
   blasts.length = 0;
   beam = null;
+  raditzSuper = null;
   superSaiyan = false;
   currentPower = null;
   itemAction = null;
@@ -737,7 +790,7 @@ function updateBlasts(dt, width, size) {
       if (!playerCombat.health) return;
       continue;
     }
-    const distance = 640 * dt;
+    const distance = blast.speed * dt;
     const radius = 31 * size;
     const wall = closestTerrainHit(terrain, blast.x, blast.altitude,
       blast.x + distance * blast.direction, blast.altitude);
@@ -761,7 +814,7 @@ function updateBlasts(dt, width, size) {
 
 function updateHostileBlast(blast, dt, width, size) {
   if (!boss?.health) return true;
-  const dx = 440 * dt * blast.direction;
+  const dx = (blast.speed ?? 440) * dt * blast.direction;
   const dy = blast.verticalSpeed * dt;
   if (closestTerrainHit(terrain, blast.x, blast.altitude, blast.x + dx, blast.altitude + dy) < 1) return true;
   const ahead = (x - blast.x) * blast.direction;
@@ -780,7 +833,7 @@ function updateHostileBlast(blast, dt, width, size) {
 
 function drawBlast(blast, floor, size) {
   const y = floor - blast.altitude;
-  const radius = 14 * size;
+  const radius = (raditzLevel ? blast.hostile ? 19 : 12 : 14) * size;
   context.fillStyle = blast.hostile ? '#f5a0f3' : '#a4e7ff';
   context.fillRect(blast.x - blast.direction * radius * 2, y - radius / 4,
     blast.direction * radius * 2, radius / 2);
@@ -788,8 +841,157 @@ function drawBlast(blast, floor, size) {
   for (const [index, scale] of [1, 0.75, 0.47].entries()) {
     context.fillStyle = colors[index];
     context.beginPath();
-    context.arc(blast.x, y, radius * scale, 0, Math.PI * 2);
+    if (raditzLevel && !blast.hostile) {
+      context.ellipse(blast.x, y, 1.18 * radius * scale, 0.7 * radius * scale, 0, 0, Math.PI * 2);
+    } else {
+      context.arc(blast.x, y, radius * scale, 0, Math.PI * 2);
+    }
     context.fill();
+  }
+  if (raditzLevel && blast.hostile) {
+    context.strokeStyle = '#f6b2fa';
+    context.lineWidth = 1.4 * size;
+    context.beginPath();
+    context.ellipse(blast.x, y, radius * 1.25, radius * 0.62, -0.55, 0, Math.PI * 2);
+    context.stroke();
+  }
+}
+
+function beamRayY(ray, position) {
+  const span = ray.endX - ray.x;
+  return span ? ray.altitude + (ray.endY - ray.altitude) * (position - ray.x) / span : ray.altitude;
+}
+
+function rayContainsX(ray, position, padding = 0) {
+  return position >= Math.min(ray.x, ray.endX) - padding && position <= Math.max(ray.x, ray.endX) + padding;
+}
+
+function trimEnergyRay(ray, endX) {
+  return { ...ray, endX, endY: beamRayY(ray, endX) };
+}
+
+function raditzRays(size) {
+  return [-1, 1].map((lane) => {
+    const { x: origin, altitude, direction } = raditzSuper;
+    const y = altitude + lane * 12 * size;
+    const endX = origin + direction * 570;
+    const endY = y + lane * 25 * size;
+    const fraction = closestTerrainHit(terrain, origin, y, endX, endY);
+    return { x: origin, altitude: y, endX: origin + (endX - origin) * fraction,
+      endY: y + (endY - y) * fraction };
+  });
+}
+
+function blastTravel(blast, dt) {
+  return { x: (blast.speed ?? 440) * dt * blast.direction, y: (blast.verticalSpeed ?? 0) * dt };
+}
+
+function projectilesTouch(a, b, dt, size) {
+  const one = blastTravel(a, dt);
+  const two = blastTravel(b, dt);
+  const dx = a.x - b.x;
+  const dy = a.altitude - b.altitude;
+  const relativeX = one.x - two.x;
+  const relativeY = one.y - two.y;
+  const length = relativeX ** 2 + relativeY ** 2;
+  const t = length ? Math.max(0, Math.min(1, -(dx * relativeX + dy * relativeY) / length)) : 0;
+  if (Math.hypot(dx + relativeX * t, dy + relativeY * t) > 29 * size ||
+      closestTerrainHit(terrain, a.x, a.altitude, b.x, b.altitude) < 1) return null;
+  return { x: (a.x + one.x * t + b.x + two.x * t) / 2,
+    altitude: (a.altitude + one.y * t + b.altitude + two.y * t) / 2 };
+}
+
+function rayHitsProjectile(ray, blast, dt, size) {
+  const travel = blastTravel(blast, dt);
+  for (const fraction of [0, 0.5, 1]) {
+    const position = blast.x + travel.x * fraction;
+    const altitude = blast.altitude + travel.y * fraction;
+    if (rayContainsX(ray, position, 6 * size) &&
+        Math.abs(beamRayY(ray, position) - altitude) < 27 * size) return true;
+  }
+  return false;
+}
+
+function updateRaditzEnergy(dt, width, size) {
+  energyClash = null;
+  for (let index = clashSparks.length - 1; index >= 0; index--) {
+    clashSparks[index].time -= dt;
+    if (clashSparks[index].time <= 0) clashSparks.splice(index, 1);
+  }
+  if (raditzSuper) {
+    raditzSuper.elapsed += dt;
+    if (raditzSuper.elapsed >= 1.45 || !boss?.health) raditzSuper = null;
+  }
+  const friendly = beam?.elapsed >= 0 ? beamOrigin(width, size) : null;
+  let hostile = raditzSuper ? raditzRays(size) : [];
+  if (friendly && raditzSuper?.direction === -beam.direction) {
+    const midpoint = (friendly.x + raditzSuper.x) / 2;
+    const playerRay = { x: friendly.x, endX: friendly.end };
+    if (rayContainsX(playerRay, midpoint) && hostile.some((ray) =>
+      rayContainsX(ray, midpoint) && Math.abs(beamRayY(ray, midpoint) - friendly.altitude) < 34 * size)) {
+      energyClash = { x: midpoint, altitude: friendly.altitude };
+      friendly.end = midpoint;
+      hostile = hostile.map((ray) => rayContainsX(ray, midpoint) ? trimEnergyRay(ray, midpoint) : ray);
+    }
+  }
+  if (raditzSuper) raditzSuper.rays = hostile;
+
+  const intercepted = new Set();
+  for (const [index, blast] of blasts.entries()) {
+    if (intercepted.has(blast)) continue;
+    const barriers = blast.hostile && friendly
+      ? [{ x: friendly.x, altitude: friendly.altitude, endX: friendly.end, endY: friendly.altitude }]
+      : blast.hostile ? [] : hostile;
+    if (barriers.some((ray) => rayHitsProjectile(ray, blast, dt, size))) {
+      intercepted.add(blast);
+      clashSparks.push({ x: blast.x, altitude: blast.altitude, time: 0.3 });
+      continue;
+    }
+    for (let next = index + 1; next < blasts.length; next++) {
+      const other = blasts[next];
+      if (Boolean(blast.hostile) === Boolean(other.hostile) || intercepted.has(other)) continue;
+      const contact = projectilesTouch(blast, other, dt, size);
+      if (!contact) continue;
+      intercepted.add(blast);
+      intercepted.add(other);
+      clashSparks.push({ ...contact, time: 0.3 });
+      break;
+    }
+  }
+  for (let index = blasts.length - 1; index >= 0; index--) {
+    if (intercepted.has(blasts[index])) blasts.splice(index, 1);
+  }
+  if (raditzSuper && raditzSuper.elapsed >= raditzSuper.nextHit && hostile.some((ray) => rayContainsX(ray, x) &&
+      beamRayY(ray, x) >= airborneHeight + 7 * size && beamRayY(ray, x) <= airborneHeight + 112 * size)) {
+    raditzSuper.nextHit = raditzSuper.elapsed + 0.37;
+    hurtPlayer(raditzAttacks.super.damage, raditzSuper.direction);
+  }
+}
+
+function drawRaditzEnergy(floor, size, time) {
+  for (const ray of raditzSuper?.rays ?? []) {
+    for (const [width, color] of [[23, '#dfa7f1'], [15, '#ae38d6'], [6, '#fcddff']]) {
+      context.lineWidth = width * size;
+      context.strokeStyle = color;
+      context.beginPath();
+      context.moveTo(ray.x, floor - ray.altitude);
+      context.lineTo(ray.endX, floor - ray.endY);
+      context.stroke();
+    }
+  }
+  const sparks = energyClash ? [...clashSparks, { ...energyClash, time: 0.17 + Math.sin(time / 65) * 0.035 }]
+    : clashSparks;
+  for (const spark of sparks) {
+    const radius = (9 + (0.3 - spark.time) * 65) * size;
+    context.fillStyle = '#fff0b9';
+    context.beginPath();
+    context.arc(spark.x, floor - spark.altitude, radius / 3, 0, Math.PI * 2);
+    context.fill();
+    context.strokeStyle = '#ffd36c';
+    context.lineWidth = 2 * size;
+    context.beginPath();
+    context.arc(spark.x, floor - spark.altitude, radius, 0, Math.PI * 2);
+    context.stroke();
   }
 }
 
@@ -830,7 +1032,7 @@ function beamOrigin(width, size) {
   const wall = closestTerrainHit(terrain, x, altitude, screenEnd, altitude);
   return {
     x: originX, altitude,
-    end: x + (screenEnd - x) * wall,
+    end: energyClash?.x ?? x + (screenEnd - x) * wall,
   };
 }
 
@@ -1002,6 +1204,11 @@ function updateBossBattle(dt, width, size) {
   if (boss) {
     if (boss.gone) {
       bossHud.hidden = true;
+      if (raditzLevel && raditzRescueElapsed < 1.05) {
+        raditzSuper = null;
+        raditzRescueElapsed += dt;
+        return;
+      }
       for (let index = blasts.length - 1; index >= 0; index--) {
         if (blasts[index].hostile) blasts.splice(index, 1);
       }
@@ -1028,6 +1235,11 @@ function updateBossBattle(dt, width, size) {
   };
   boss.facing = boss.x > x ? -1 : 1;
   setBossForm(boss);
+  if (raditzLevel) {
+    boss.ki = 24;
+    bossKiRow.hidden = false;
+    updateRaditzKi(boss, 0);
+  }
   bossHud.hidden = false;
   enemies.push(boss);
 }
@@ -1073,6 +1285,14 @@ function bossPoses(enemy) {
   return enemy.form.sprite === 'raditz' ? sprites.raditz : roster.get(enemy.form.sprite).boss;
 }
 
+function updateRaditzKi(enemy, amount) {
+  enemy.ki = Math.max(0, Math.min(100, enemy.ki + amount));
+  const value = Math.floor(enemy.ki);
+  if (bossKi.value !== value) bossKi.value = value;
+  const label = value + '%';
+  if (bossKiValue.textContent !== label) bossKiValue.textContent = label;
+}
+
 function updateBoss(enemy, dt, size) {
   const poses = bossPoses(enemy);
   if (!playerCombat.health) {
@@ -1084,6 +1304,10 @@ function updateBoss(enemy, dt, size) {
   const phaseStrength = 1 + enemy.phase * 0.1;
   const dx = x - enemy.x;
   const dy = airborneHeight - enemy.altitude;
+  if (raditzLevel) {
+    updateRaditzKi(enemy, dt * (enemy.attackTime !== null && enemy.attackName === 'charge' ? 36 : 6));
+    if (raditzSuper) return poses[8];
+  }
   if (enemy.attackTime !== null) {
     const move = raditzAttacks[enemy.attackName];
     const windup = enemy.windup;
@@ -1092,12 +1316,18 @@ function updateBoss(enemy, dt, size) {
     if (before < windup && enemy.attackTime >= windup) {
       if (enemy.attackName === 'blast') {
         const source = enemy.x + enemy.facing * 55 * size;
-        const travel = Math.max(0.15, Math.abs(x - source) / 440);
+        const speed = raditzLevel ? 470 : 440;
+        const travel = Math.max(0.15, Math.abs(x - source) / speed);
+        if (raditzLevel) updateRaditzKi(enemy, -raditzBlastCost);
         blasts.push({
-          hostile: true, x: source, altitude: enemy.altitude + 100 * size, direction: enemy.facing,
-          verticalSpeed: Math.max(-260, Math.min(260, (dy - 14 * size) / travel)),
+          hostile: true, x: source, altitude: enemy.altitude + 100 * size, direction: enemy.facing, speed,
+          verticalSpeed: Math.max(-260, Math.min(260, (dy - (raditzLevel ? 27 : 14) * size) / travel)),
           damage: Math.round(move.damage * phaseStrength), life: 2,
         });
+      } else if (enemy.attackName === 'super') {
+        updateRaditzKi(enemy, -raditzSuperCost);
+        raditzSuper = { x: enemy.x + enemy.facing * 58 * size, altitude: enemy.altitude + 90 * size,
+          direction: enemy.facing, elapsed: 0, nextHit: 0, rays: [] };
       } else if (inRange(dx, dy, enemy.facing, move.reach * (style === 'brute' ? 1.15 : 1), size) &&
           clearStrike(enemy.x, enemy.altitude, x, airborneHeight, size)) {
         hurtPlayer(Math.round((move.damage + (style === 'brute' ? 3 : 0)) * phaseStrength), enemy.facing);
@@ -1115,9 +1345,13 @@ function updateBoss(enemy, dt, size) {
   if (!enemy.cooldown && clearStrike(enemy.x, enemy.altitude, x, airborneHeight, size)) {
     if (inRange(dx, dy, enemy.facing, 80, size)) {
       enemy.attackName = style === 'brute' || enemy.moves % 2 ? 'kick' : 'punch';
+    } else if (raditzLevel && enemy.ki >= raditzSuperCost && enemy.moves > 0 &&
+        (enemy.moves % 3 === 1 || enraged && enemy.moves % 2 === 1) &&
+        Math.abs(dx) >= 130 * size && Math.abs(dx) < 490 * size && Math.abs(dy) < 94 * size) {
+      enemy.attackName = 'super';
     } else if (Math.abs(dx) >= 130 * size && Math.abs(dx) <= (style === 'ranged' ? 450 : 360) * size &&
         Math.abs(dy) < 135 * size) {
-      enemy.attackName = 'blast';
+      enemy.attackName = raditzLevel && enemy.ki < raditzBlastCost ? 'charge' : 'blast';
     } else {
       enemy.attackName = null;
     }
@@ -1321,7 +1555,7 @@ function update(dt, width, height, size) {
   }
   const jumpProgress = jumpElapsed === null ? 0 : jumpElapsed / jumpDuration;
   if (jumpElapsed !== null) {
-    const nextHeight = jumpOrigin + 4 * (height * 0.13) * jumpProgress * (1 - jumpProgress);
+    const nextHeight = jumpOrigin + 4 * (height * (raditzLevel ? 0.35 : 0.13)) * jumpProgress * (1 - jumpProgress);
     const ascending = nextHeight > airborneHeight;
     movePlayer(x, nextHeight, size);
     if (ascending && airborneHeight < nextHeight - 0.015) jumpElapsed = null;
@@ -1580,6 +1814,12 @@ function updateStageStatus() {
       ? boss.encounter.name + ' está mudando de forma'
       : boss.health <= bossHealth.max / 2 && boss.health > 0
         ? boss.encounter.name + ' intensificou os ataques' : '';
+    if (raditzLevel && raditzRescueElapsed > 0) text = 'Gohan está livre';
+    else if (raditzLevel && boss && boss.attackTime !== null && boss.attackTime < boss.windup) {
+      if (boss.attackName === 'blast') text = 'Raditz · Saturday Crush';
+      if (boss.attackName === 'super') text = 'Raditz · Double Sunday';
+      if (boss.attackName === 'charge') text = 'Raditz está carregando ki';
+    }
   }
   waveStatus.hidden = !text || finished || !playerCombat.health;
   if (waveStatus.textContent !== text) waveStatus.textContent = text;
@@ -1617,10 +1857,33 @@ sceneDialogue.addEventListener('click', advanceScene);
 canvas.addEventListener('click', advanceScene);
 document.querySelector('#skip-scene').addEventListener('click', finishScene);
 
+function breathAt(time, offset = 0) {
+  return 0.5 + Math.sin(time * 3.05 + offset) * 0.5;
+}
+
+function drawRaditzScenery(floor, size, time, piccoloArrival = 1) {
+  const width = canvas.clientWidth;
+  const podX = world.center + Math.min(242, width * 0.36);
+  const freed = raditzRescueElapsed > 0;
+  drawFighter(sprites.raditzPod[freed ? 1 : 0], podX, floor, -1, size);
+  if (freed) {
+    const progress = Math.min(1, raditzRescueElapsed / 0.65);
+    drawFighter(sprites.raditzPod[2], podX - 66 * progress * size, floor, -1, size,
+      0, breathAt(time, 0.6));
+  }
+  if (piccoloArrival > 0) {
+    const piccolo = roster.get('piccoloCape').player;
+    const arrived = piccoloArrival >= 0.99;
+    const position = world.center - Math.min(248, width * 0.34);
+    drawFighter(piccolo.boss[arrived ? 0 : 2], position - (1 - piccoloArrival) * 135,
+      floor - (1 - piccoloArrival) * 64 * size, 1, size, 0, arrived ? breathAt(time, 1.7) : 0);
+  }
+}
+
 function drawScene(dt, width, height, groundLine, size, density) {
   scene.time += dt;
   scene.stepTime += dt;
-  const distance = Math.min(width * 0.23, 155);
+  const distance = Math.min(width * 0.21, 143);
   const gokuX = world.center - distance;
   raditzEntranceX = world.center + distance;
   x = gokuX;
@@ -1636,16 +1899,18 @@ function drawScene(dt, width, height, groundLine, size, density) {
   drawLandscape(width, height, groundLine);
   context.translate(-camera.left, 0);
   drawGround(width, height, groundLine);
+  const piccoloArrival = scene.line < 3 ? 0 : scene.line === 3 ? Math.min(1, scene.stepTime / 0.45) : 1;
+  drawRaditzScenery(groundLine, size, scene.time, piccoloArrival);
   drawFighter(ready ? sprites.punch[0] : sprites.idle[Math.floor(scene.time * 4) % 5],
-    gokuX + (ready ? beat * 10 : 0), groundLine, 1, size);
-  const raditzPose = arrival < 0.9 ? 2 : ready || scene.line === 2 ? 5 : 0;
-  drawFighter(sprites.raditz[raditzPose], raditzX - (scene.line === 2 ? beat * 12 : 0),
-    raditzY, -1, size);
+    gokuX + (ready ? beat * 10 : 0), groundLine, 1, size, 0, breathAt(scene.time));
+  const raditzPose = arrival < 0.9 ? 2 : ready || scene.line === 4 ? 5 : 0;
+  drawFighter(sprites.raditz[raditzPose], raditzX - (scene.line === 4 ? beat * 12 : 0),
+    raditzY, -1, size, 0, raditzPose === 2 ? 0 : breathAt(scene.time, 1.05));
 }
 
 function render(time) {
   requestAnimationFrame(render);
-  if (finished || pauseMenu.open || !landscape.matches || document.hidden) return;
+  if (finished || pauseMenu.open || portraitTouch.matches || document.hidden) return;
   const width = canvas.clientWidth;
   const height = canvas.clientHeight;
   const density = window.devicePixelRatio || 1;
@@ -1693,6 +1958,7 @@ function render(time) {
   game.classList.toggle('beam-focus', focusing);
   if (!focusing) {
     updateSeed(dt, groundLine, size);
+    if (raditzLevel) updateRaditzEnergy(dt, width, size);
     updateBlasts(dt, world.width, size);
     if (bossLevel) updateBossBattle(dt, width, size);
     else if (namek) updatePatrols(size);
@@ -1723,6 +1989,7 @@ function render(time) {
   context.translate(-camera.left, 0);
   drawGround(width, height, floor);
   paintTerrain(context, terrain, camera.left, width, height, floor, namek);
+  if (raditzLevel) drawRaditzScenery(floor, size, time / 1000);
   if (namek) drawDragonBalls(width, floor, time);
   paintDragonRadar(radarContext, world, terrain, x, airborneHeight, dragonBalls, enemies);
   if (!seed.collected && seed.altitude !== null) {
@@ -1738,7 +2005,9 @@ function render(time) {
       enemy.meter.hidden = enemy.x < camera.left || enemy.x > camera.left + width || barY < 1 || baseline > height + 80;
       enemy.meter.style.transform = 'translate(' + Math.round(enemy.x - camera.left) + 'px, ' + Math.round(barY) + 'px) translateX(-50%)';
     }
-    drawFighter(frame, enemy.x, baseline, enemy.facing, size);
+    const breathing = raditzLevel && (frame === sprites.raditz[0] || frame === sprites.raditz[5])
+      ? breathAt(time / 1000, 1.05) : 0;
+    drawFighter(frame, enemy.x, baseline, enemy.facing, size, 0, breathing);
     if (enemy.boss && enemy.transition !== null) {
       context.strokeStyle = '#e4aeff';
       context.lineWidth = 3;
@@ -1746,13 +2015,16 @@ function render(time) {
       context.arc(enemy.x, baseline - 77 * size, (26 + enemy.transition * 68) * size, 0, Math.PI * 2);
       context.stroke();
     }
-    if (enemy.boss && !enemy.reaction && enemy.attackName === 'blast' &&
+    if (enemy.boss && !enemy.reaction && ['blast', 'super', 'charge'].includes(enemy.attackName) &&
         enemy.attackTime !== null && enemy.attackTime < enemy.windup) {
       const radius = (3 + 10 * enemy.attackTime / enemy.windup) * size;
       context.fillStyle = '#f784e9';
-      context.beginPath();
-      context.arc(enemy.x + enemy.facing * 48 * size, baseline - 91 * size, radius, 0, Math.PI * 2);
-      context.fill();
+      const rings = enemy.attackName === 'super' ? [-13, 13] : [0];
+      for (const offset of rings) {
+        context.beginPath();
+        context.arc(enemy.x + enemy.facing * 48 * size, baseline - (91 + offset) * size, radius, 0, Math.PI * 2);
+        context.fill();
+      }
     }
   }
   for (let index = enemies.length - 1; index >= 0; index--) {
@@ -1768,7 +2040,8 @@ function render(time) {
     drawSuperAura(floor, size, time / 1000, Boolean(visualPower && transforming !== null),
       (visualPower ?? pendingPower)?.sprite === 'kaioken');
   }
-  if (playerFrame) drawFighter(playerFrame, x, floor - airborneHeight, facing, size, flightAngle);
+  const breathing = raditzLevel && ['idle', 'lookUp', 'lookDown'].includes(animation) ? breathAt(time / 1000) : 0;
+  if (playerFrame) drawFighter(playerFrame, x, floor - airborneHeight, facing, size, flightAngle, breathing);
   if (itemAction?.type === 'pickup' && animation === 'pickup' && itemAction.elapsed >= 0.23) {
     const hover = Math.sin(itemAction.elapsed * 10) * 4 * size;
     const handHeight = playerFrame.bodyHeight ?? playerFrame.frame.height * playerFrame.scale;
@@ -1776,10 +2049,11 @@ function render(time) {
   }
   if (beam?.elapsed < 0) drawBeamCharge(floor, size);
   else if (beam) drawBeam(width, floor, size);
+  if (raditzLevel) drawRaditzEnergy(floor, size, time);
 }
 
 function drawFighter({ frame, scale, lean = 0, stretch = 1, rise = 0, shift = 0 },
-  position, baseline, direction, size, angle = 0) {
+  position, baseline, direction, size, angle = 0, breath = 0) {
   const spriteWidth = frame.width * scale * size * stretch;
   const spriteHeight = frame.height * scale * size;
   context.save();
@@ -1791,8 +2065,19 @@ function drawFighter({ frame, scale, lean = 0, stretch = 1, rise = 0, shift = 0 
     context.rotate(angle);
     context.translate(0, spriteHeight * 0.48);
   }
-  context.drawImage(frame, Math.round(-spriteWidth / 2), Math.round(-spriteHeight),
-    Math.round(spriteWidth), Math.round(spriteHeight));
+  if (breath) {
+    const split = Math.floor(frame.height * 0.62);
+    const stance = Math.round(spriteHeight * (1 - split / frame.height));
+    const chestHeight = Math.round(spriteHeight) - stance + Math.round(breath * 4 * size);
+    const chestWidth = Math.round(spriteWidth * (1 + breath * 0.035));
+    context.drawImage(frame, 0, split, frame.width, frame.height - split,
+      Math.round(-spriteWidth / 2), -stance, Math.round(spriteWidth), stance);
+    context.drawImage(frame, 0, 0, frame.width, split + 1,
+      Math.round(-chestWidth / 2), -stance - chestHeight, chestWidth, chestHeight + 1);
+  } else {
+    context.drawImage(frame, Math.round(-spriteWidth / 2), Math.round(-spriteHeight),
+      Math.round(spriteWidth), Math.round(spriteHeight));
+  }
   context.restore();
 }
 
@@ -1861,6 +2146,7 @@ async function loadRoster() {
   const needed = new Set([hero, ...encounters.flatMap((encounter) =>
     [selectedLevel?.hero, encounter.hero, ...encounter.forms.flatMap((phase) => [phase.sprite, phase.hero])]),
   ...(selectedLevel?.powers ?? []).map((entry) => entry.sprite)]);
+  if (raditzLevel) needed.add('piccoloCape');
   const sheets = rosterSheets.filter(([, ids]) => ids.some((id) => needed.has(id)));
   const images = await Promise.all(sheets.map(([path]) => loadImage(path)));
   const small = new Set(['kaio', 'saibaman', 'guldo', 'cellJr', 'kidGohan', 'krillin', 'goten', 'trunksKid']);
@@ -2003,7 +2289,7 @@ function readOutfit(image, top) {
 
 async function start() {
   try {
-    const [base, charge, combat, damaged, kame, senzu, ssj, arena, raditz, scout] = await Promise.all([
+    const [base, charge, combat, damaged, kame, senzu, ssj, arena, raditz, scout, pod] = await Promise.all([
       loadImage('assets/goku-base.png'), loadImage('assets/goku-ki.png'), loadImage('assets/combat.png'),
       loadImage('assets/goku-damaged.png'), loadImage('assets/goku-kamehameha.png'),
       loadImage('assets/goku-senzu.png'),
@@ -2012,6 +2298,7 @@ async function start() {
       loadBackdrop(),
       raditzLevel ? loadImage('assets/raditz.png') : null,
       namek ? loadImage('assets/freeza-scout.png') : null,
+      raditzLevel ? loadImage('assets/raditz-pod.png') : null,
       loadRoster(),
     ]);
     landscapeArt = arena;
@@ -2078,6 +2365,11 @@ async function start() {
       for (const pose of [...motion, ...strikes, ...hit]) pose.scale = scale;
       sprites.raditz = [...motion, ...strikes];
       sprites.raditzHit = hit;
+      sprites.raditzPod = readRow(pod, [0, 703, 1565, 2172], 0, pod.height, 1, true);
+      const podScale = 121 / sprites.raditzPod[0].frame.height;
+      sprites.raditzPod[0].scale = podScale;
+      sprites.raditzPod[1].scale = podScale;
+      sprites.raditzPod[2].scale = 94 / sprites.raditzPod[2].frame.height;
     }
     const ssjColumns = [223, 461, 696, 932, 1168, 1397];
     const ssjRows = [
@@ -2096,7 +2388,7 @@ async function start() {
       showSceneLine();
       game.classList.add('cutscene-active');
       cutscene.hidden = false;
-      if (landscape.matches) sceneDialogue.focus();
+      if (!portraitTouch.matches) sceneDialogue.focus();
     }
     requestAnimationFrame(render);
   } catch (error) {

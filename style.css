@@ -96,6 +96,11 @@ meter::-moz-meter-bar { background: #db640d; }
   pointer-events: none;
 }
 #boss-health { height: 12px; }
+#boss-ki-row { margin-bottom: 2px; }
+#boss-ki-row .ki-label { font-size: .64rem; }
+#boss-ki { display: block; height: 8px; }
+#game.raditz-stage #wave-status { top: max(79px, calc(env(safe-area-inset-top) + 66px)); }
+#game.raditz-stage #combat-notice { top: max(106px, calc(env(safe-area-inset-top) + 91px)); }
 #boss-health::-webkit-meter-optimum-value { background: #e05855; }
 #boss-health::-moz-meter-bar { background: #e05855; }
 #boss-health.segmented { position: absolute; width: 1px; height: 1px; clip-path: inset(50%); }
@@ -400,6 +405,8 @@ button:focus-visible { outline: 3px solid #315c97; outline-offset: 3px; }
   transform: translateY(5px) rotate(45deg);
 }
 #scene-dialogue[data-speaker="Raditz"]::before { left: 75%; }
+#scene-dialogue[data-speaker="Piccolo"]::before { left: 13%; }
+#scene-dialogue[data-speaker="Gohan"]::before { left: 86%; }
 #scene-speaker { color: #7c3b0b; }
 .scene-next { position: absolute; right: 13px; top: 34%; font-size: 1.55rem; }
 #game.cutscene-active :is(.hud, .controls, .inventory, #fullscreen, #pause, #radar),
@@ -413,7 +420,7 @@ button:focus-visible { outline: 3px solid #315c97; outline-offset: 3px; }
   pointer-events: none;
 }
 .orientation { display: none; }
-@media (orientation: portrait) {
+@media (orientation: portrait) and (pointer: coarse) {
   #game { display: none; }
   #pause-menu, #pause-menu::backdrop { display: none; }
   .playing .orientation {
@@ -428,4 +435,33 @@ button:focus-visible { outline: 3px solid #315c97; outline-offset: 3px; }
   .orientation h1 { margin: 24px 0 4px; font-size: 1.5rem; }
   .orientation p { margin: 0; color: #506078; }
   .phone { width: 62px; height: 36px; border: 3px solid currentColor; border-radius: 9px; }
+}
+
+.keyboard-movement { display: none; }
+@media (hover: hover) and (pointer: fine) {
+  .keyboard-movement {
+    display: block;
+    position: absolute;
+    left: 0;
+    bottom: calc(clamp(96px, 29dvh, 134px) + 8px);
+    padding: 5px 8px;
+    border-radius: 8px;
+    background: #182940;
+    color: #fff;
+    font-size: .75rem;
+    line-height: 1.5;
+  }
+  .actions button { position: relative; }
+  [data-key]::after {
+    content: attr(data-key);
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    padding: 1px 4px;
+    border-radius: 4px;
+    background: #182940;
+    color: #fff;
+    font: .65rem system-ui, sans-serif;
+    pointer-events: none;
+  }
 }
