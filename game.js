@@ -99,6 +99,9 @@ const clashSparks = [];
 const raditzBlastCost = 6;
 const raditzSuperCost = 26;
 
+const movementKeys = new Map([
+  ['a', 'left'], ['d', 'right'], ['w', 'up'], ['s', 'down'],
+]);
 const keys = new Map([
   ['ArrowLeft', 'left'], ['ArrowRight', 'right'],
   ['ArrowUp', 'up'], ['ArrowDown', 'down'],
@@ -479,7 +482,7 @@ for (const button of buttons) {
     if (event.ctrlKey || event.metaKey || event.altKey || (event.code !== 'Space' && event.code !== 'Enter')) return;
     event.preventDefault();
     event.stopPropagation();
-    if (!event.repeat) press(event.code, button.dataset.action);
+    if (!event.repeat) press(keyboardInput(event), button.dataset.action);
   });
 }
 
@@ -502,11 +505,11 @@ window.addEventListener('keydown', (event) => {
     return;
   }
   if (finished || portraitTouch.matches) return;
-  const action = keys.get(code);
+  const action = movementKeys.get(event.key.toLowerCase()) ?? keys.get(code);
   if (action) {
     if (code === 'Space' && event.target.closest?.('button, a')) return;
     event.preventDefault();
-    if (!event.repeat) press(code, action);
+    if (!event.repeat) press(keyboardInput(event), action);
     return;
   }
   const shortcut = {
@@ -517,7 +520,11 @@ window.addEventListener('keydown', (event) => {
   }[code];
   if (shortcut && !event.repeat) shortcut.click();
 });
-window.addEventListener('keyup', (event) => release(event.code));
+function keyboardInput(event) {
+  return event.code && event.code !== 'Unidentified' ? event.code : event.key.toLowerCase();
+}
+
+window.addEventListener('keyup', (event) => release(keyboardInput(event)));
 window.addEventListener('blur', resetInputs);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) resetInputs();
@@ -2389,6 +2396,8 @@ async function start() {
       game.classList.add('cutscene-active');
       cutscene.hidden = false;
       if (!portraitTouch.matches) sceneDialogue.focus();
+    } else if (!portraitTouch.matches && document.activeElement === document.body) {
+      canvas.focus({ preventScroll: true });
     }
     requestAnimationFrame(render);
   } catch (error) {
