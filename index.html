@@ -29,17 +29,56 @@
     <p id="status" role="status">Carregando sprites…</p>
     <p id="defeat" role="status" hidden>Goku foi derrotado. Atualize a página para tentar de novo.</p>
     <p id="combat-notice" role="status" hidden></p>
+    <p id="wave-status" role="status">Onda 1/3 · Prepare-se</p>
+    <p id="stage-complete" role="status" hidden>Fase concluída</p>
     <div class="controls">
       <div id="joystick" role="group" aria-label="Joystick de movimento" aria-description="Arraste para mover, olhar para cima ou para baixo, ou controlar o voo. Também funciona com as setas do teclado.">
         <span class="stick-thumb" aria-hidden="true"></span>
       </div>
       <div class="actions" role="group" aria-label="Ações">
-        <button type="button" data-action="punch">Soco</button>
-        <button type="button" data-action="kick">Chute</button>
-        <button type="button" data-action="blast" aria-label="Disparar esfera de ki (custa 10)">Poder</button>
-        <button type="button" data-action="jump" aria-description="Dois toques rápidos para voar ou pousar" aria-pressed="false">Pular</button>
-        <button type="button" data-action="charge">Ki</button>
-        <button type="button" data-action="beam" aria-label="Kamehameha (custa 40 de ki)">Kame</button>
+        <button type="button" data-action="punch" aria-label="Soco" title="Soco">
+          <svg viewBox="0 0 32 32" aria-hidden="true">
+            <path d="M9 27v-4l-4-5v-4a2.4 2.4 0 0 1 4.8 0V8a2.2 2.2 0 0 1 4.4 0V6a2.2 2.2 0 0 1 4.4 0v1a2.2 2.2 0 0 1 4.4 0v2a2.2 2.2 0 0 1 4.4 0v8.5a7 7 0 0 1-2 5L24 24v3z"/>
+            <path d="M14.2 8v6m4.4-7v7M23 9v5M9.8 15l4.6 3.1a2.3 2.3 0 0 0 3.3-.6l1.2-1.7-4-2.7"/>
+          </svg>
+        </button>
+        <button type="button" data-action="kick" aria-label="Chute" title="Chute">
+          <svg viewBox="0 0 32 32" aria-hidden="true">
+            <g fill="currentColor" stroke="none" transform="rotate(22 16 16)">
+              <path d="M17.1 12.2c-3.9-1-7.2 1.7-7.2 5.1 0 2.4 1.5 4.1 2 5.6.5 1.4.3 2.8 1.3 4a3.4 3.4 0 0 0 5.9-1.7c.2-1.5-.5-3.2 0-4.8.4-1.4 1.7-2.8 1.5-4.8-.2-1.6-1.5-2.9-3.5-3.4z"/>
+              <ellipse cx="19.2" cy="6.4" rx="2.8" ry="3.4"/>
+              <ellipse cx="13.2" cy="6.9" rx="2" ry="2.6"/>
+              <circle cx="9" cy="9.5" r="1.8"/>
+              <circle cx="6.7" cy="13" r="1.4"/>
+            </g>
+          </svg>
+        </button>
+        <button type="button" data-action="blast" aria-label="Disparar esfera de ki (custa 10)" title="Poder">
+          <svg viewBox="0 0 32 32" aria-hidden="true">
+            <circle cx="21.5" cy="10.5" r="6.5"/>
+            <circle cx="21.5" cy="10.5" r="2.4" fill="currentColor" stroke="none"/>
+            <circle cx="10" cy="22.5" r="5.5"/>
+            <circle cx="10" cy="22.5" r="1.8" fill="currentColor" stroke="none"/>
+          </svg>
+        </button>
+        <button type="button" data-action="jump" aria-label="Pular" title="Pular" aria-description="Dois toques rápidos para voar ou pousar" aria-pressed="false">
+          <svg viewBox="0 0 32 32" aria-hidden="true">
+            <path d="m7.5 13.5 8.5-8 8.5 8m-17 11 8.5-8 8.5 8"/>
+          </svg>
+        </button>
+        <button type="button" data-action="charge" aria-label="Ki" title="Carregar ki" hidden>
+          <svg viewBox="0 0 32 32" aria-hidden="true">
+            <path d="M16 29c-6.3 0-10.1-4.1-10.1-9.3 0-3.3 1.5-6 3.4-8.4.1 2 .7 3.1 1.7 4 1.3-4.4 4.8-5.9 5.1-12.3 3.2 3 4.5 6.3 4.4 10.2 1.2-.7 2-1.8 2.4-3.3 2.2 3.3 3.3 6.6 3.3 9.8C26.2 25 22 29 16 29Z"/>
+            <path d="M16 29c-3.3 0-4.7-2.4-4.7-4.8 0-3.1 3.2-4.3 4.7-7.5 1 2.8 4.6 4.4 4.6 7.5 0 2.4-1.6 4.8-4.6 4.8Z"/>
+          </svg>
+        </button>
+        <button type="button" data-action="beam" aria-label="Kamehameha (custa 40 de ki)" title="Kamehameha">
+          <svg viewBox="0 0 32 32" aria-hidden="true">
+            <path d="M14.3 11.5H29v9H14.3m3-4.5H29"/>
+            <circle cx="9.5" cy="16" r="6.5"/>
+            <circle cx="9.5" cy="16" r="2.4" fill="currentColor" stroke="none"/>
+          </svg>
+        </button>
         <button id="transform" type="button" data-action="transform" aria-label="Transformar em Super Saiyajin" hidden>SSJ</button>
       </div>
     </div>

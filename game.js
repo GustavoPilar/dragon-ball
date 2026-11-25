@@ -20,6 +20,9 @@ const defeat = document.querySelector('#defeat');
 const gokuHealth = document.querySelector('#goku-health');
 const combatNotice = document.querySelector('#combat-notice');
 const transformButton = document.querySelector('#transform');
+const chargeButton = document.querySelector('[data-action="charge"]');
+const waveStatus = document.querySelector('#wave-status');
+const stageComplete = document.querySelector('#stage-complete');
 
 const keys = new Map([
   ['ArrowLeft', 'left'], ['ArrowRight', 'right'],
@@ -58,12 +61,15 @@ let transforming = null;
 let superSaiyan = false;
 const goldenFrames = new WeakMap();
 let noticeTime = 0;
-const maxEnemies = 6;
 const defeatFallTime = 0.85;
 const defeatBlinkTime = 0.72;
-let spawnTime = 2.5;
-let spawnInterval = 5;
-let spawnSide = 1;
+const waves = [
+  { sides: [1, 1], gap: 2, altitude: 0, followsFlight: false },
+  { sides: [-1, 1, -1, 1], gap: 0.85, altitude: 0, followsFlight: true },
+  { sides: [1, -1, 1, -1], gap: 0.9, altitude: 220, followsFlight: true },
+];
+const wave = { index: 0, spawned: 0, countdown: 2.5, resting: false };
+const exit = { x: world.width - 145, unlocked: false, reached: false };
 const seed = { position: world.center + (Math.random() - 0.5) * 340, altitude: null, delay: 2.8, collected: false };
 let seedsInInventory = 0;
 let itemAction = null;
@@ -425,6 +431,14 @@ seedSlot.addEventListener('click', () => {
 });
 
 function updateSeed(dt, floor, size) {
+  // Leave a way back into the aerial fight if wounds block flight.
+  if (wave.index === waves.length - 1 && !exit.unlocked && playerCombat.health &&
+      playerCombat.health <= criticalHealth && seed.collected && !seedsInInventory && !itemAction) {
+    seed.position = boundedX(x, world.width, 55 * size);
+    seed.altitude = null;
+    seed.delay = 1;
+    seed.collected = false;
+  }
   if (!seed.collected && playerCombat.health) {
     seed.delay -= dt;
     if (seed.delay <= 0) {
@@ -713,21 +727,41 @@ function react(actor, dt, floorHeight, move) {
   return { altitude, frameIndex, finished, visible };
 }
 
-function spawnEnemy(dt, width, height, size) {
-  if (!playerCombat.health) return;
-  spawnTime -= dt;
-  if (spawnTime > 0 || enemies.length >= maxEnemies) return;
+function updateWaves(dt, width, height, size) {
+  if (!playerCombat.health || exit.unlocked) return;
+  const plan = waves[wave.index];
+  wave.countdown -= dt;
+  if (wave.resting) {
+    if (wave.countdown > 0) return;
+    wave.index++;
+    wave.spawned = 0;
+    wave.resting = false;
+  } else if (wave.spawned === plan.sides.length && !enemies.some((enemy) => enemy.health)) {
+    if (wave.index === waves.length - 1) {
+      exit.unlocked = true;
+      return;
+    }
+    wave.resting = true;
+    wave.countdown = 2.8;
+    return;
+  }
+  const current = waves[wave.index];
+  if (wave.countdown > 0 || wave.spawned === current.sides.length) return;
+  spawnEnemy(current, current.sides[wave.spawned], width, height, size);
+  wave.spawned++;
+  wave.countdown = current.gap;
+}
+
+function spawnEnemy(plan, side, width, height, size) {
   const meter = enemyHealthTemplate.content.firstElementChild.cloneNode(true);
   game.append(meter);
   enemies.push({
     meter, health: meter.max, reaction: null, gone: false,
-    x: boundedX(camera.left + (spawnSide > 0 ? width - 55 * size : 55 * size), world.width, 52 * size),
-    altitude: Math.min(world.ceiling, airborneHeight + height * 0.12),
-    facing: -spawnSide, attackTime: null, cooldown: 0,
+    x: boundedX(camera.left + (side > 0 ? width - 55 * size : 55 * size), world.width, 52 * size),
+    altitude: Math.min(world.ceiling, Math.max(plan.altitude, plan.followsFlight ? airborneHeight : 0) + height * 0.08),
+    minAltitude: plan.altitude, followsFlight: plan.followsFlight,
+    facing: -side, attackTime: null, cooldown: 0,
   });
-  spawnSide *= -1;
-  spawnTime = spawnInterval;
-  spawnInterval = Math.max(2.4, spawnInterval * 0.9);
 }
 
 function updateEnemy(enemy, dt, width, height, size) {
@@ -789,7 +823,8 @@ function updateEnemy(enemy, dt, width, height, size) {
     }
   }
   enemy.x += travelDirection * travel;
-  const altitudeTarget = Math.max(height * 0.018, airborneHeight);
+  const altitudeTarget = Math.max(height * 0.018, enemy.minAltitude,
+    enemy.followsFlight ? airborneHeight : 0);
   const rise = altitudeTarget - enemy.altitude;
   enemy.altitude += Math.sign(rise) * Math.min(Math.abs(rise), height * 0.47 * dt);
   return sprites.enemy[gap > 4 || Math.abs(rise) > 8 ? 1 : 0];
@@ -987,6 +1022,46 @@ function drawGround(width, height, floor) {
   }
 }
 
+function drawExit(width, floor) {
+  if (exit.x + 47 < camera.left || exit.x - 47 > camera.left + width) return;
+  const left = exit.x - 43;
+  const top = floor - 122;
+  context.fillStyle = '#4c473c';
+  context.fillRect(left, top, 86, 122);
+  context.fillStyle = '#b49a74';
+  context.fillRect(left + 3, top, 80, 21);
+  context.fillRect(left + 3, top + 20, 13, 102);
+  context.fillRect(left + 70, top + 20, 13, 102);
+  context.fillStyle = exit.unlocked ? '#6cd2b4' : '#383c39';
+  context.fillRect(left + 17, top + 22, 52, 100);
+  context.fillStyle = exit.unlocked ? '#c8fbd2' : '#847962';
+  if (exit.unlocked) {
+    context.fillRect(left + 24, top + 31, 38, 88);
+    context.fillStyle = '#eaffde';
+    context.fillRect(left + 31, top + 45, 24, 66);
+  } else {
+    for (let offset = 22; offset < 66; offset += 11) {
+      context.fillRect(left + offset, top + 24, 3, 98);
+    }
+    context.fillRect(left + 17, top + 65, 52, 6);
+  }
+}
+
+function updateStageStatus() {
+  if (exit.unlocked && playerCombat.health && Math.abs(x - exit.x) < 64 && airborneHeight < 55) {
+    exit.reached = true;
+    stageComplete.hidden = false;
+  }
+  const label = 'Onda ' + (wave.index + 1) + '/' + waves.length;
+  let text = label;
+  if (wave.resting) text += ' · Intervalo';
+  else if (wave.index === 2) text += ' · Voe para combater';
+  else if (!wave.spawned) text += ' · Prepare-se';
+  if (exit.unlocked) text = 'Saída liberada · Siga à direita';
+  waveStatus.hidden = exit.reached || !playerCombat.health;
+  if (waveStatus.textContent !== text) waveStatus.textContent = text;
+}
+
 function render(time) {
   requestAnimationFrame(render);
   if (pauseMenu.open || !landscape.matches || document.hidden) return;
@@ -1015,7 +1090,13 @@ function render(time) {
     beam.elapsed += dt;
     if (beam.elapsed >= beamDuration) beam = null;
   }
+  const previousX = x;
+  const previousAltitude = airborneHeight;
   const normalFrame = update(dt, world.width, height, size);
+  if (dt > 0) {
+    const moving = Math.abs(x - previousX) > 0.01 || Math.abs(airborneHeight - previousAltitude) > 0.01;
+    chargeButton.hidden = moving || !playerCombat.health;
+  }
   camera.left = Math.round(Math.max(0, Math.min(Math.max(0, world.width - width), x - width / 2)));
   camera.lift = Math.round(Math.max(0, airborneHeight - height * 0.21));
   const floor = groundLine + camera.lift;
@@ -1026,9 +1107,10 @@ function render(time) {
   if (!focusing) {
     updateSeed(dt, groundLine, size);
     updateBlasts(dt, world.width, size);
-    spawnEnemy(dt, width, height, size);
+    updateWaves(dt, width, height, size);
     if (beam) applyBeam(width, size);
   }
+  updateStageStatus();
   transformButton.hidden = !canTransform();
 
   context.setTransform(density, 0, 0, density, 0, 0);
@@ -1036,6 +1118,7 @@ function render(time) {
   drawLandscape(width, height, groundLine);
   context.translate(-camera.left, 0);
   drawGround(width, height, floor);
+  drawExit(width, floor);
   if (!seed.collected && seed.altitude !== null) {
     drawSeed(seed.position, floor - seed.altitude - 4 * size, size * 0.68);
   }

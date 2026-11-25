@@ -18,7 +18,9 @@ Protótipo web de treino com Goku em forma base. Sirva a pasta localmente com `p
 
 O jogo fica disponível com a tela na horizontal. O botão de tela cheia solicita o bloqueio da orientação quando o navegador oferece suporte.
 
-Os Cell Jr. aparecem alternadamente pelos dois lados, em intervalos cada vez menores, e perseguem Goku no chão e no ar. Socos e chutes acertam todos os inimigos próximos à frente. Cada inimigo derrotado com soco ou chute rende 20 pontos de ki, até o limite de 100. As barras vermelhas acompanham os inimigos. Se Goku for derrotado, recarregue a página para recomeçar.
+Enfrente três ondas de Cell Jr. A primeira acontece no chão, a segunda traz inimigos dos dois lados e a terceira acontece no ar. Entre as ondas há um breve intervalo. Derrote a última onda e alcance o portal no extremo direito para concluir a fase.
+
+Socos e chutes acertam todos os inimigos próximos à frente. Cada inimigo derrotado com soco ou chute rende 20 pontos de ki, até o limite de 100. As barras vermelhas acompanham os inimigos. Se Goku for derrotado, recarregue a página para recomeçar.
 
 Cada esfera custa 10 pontos de ki. Goku precisa de pelo menos 10% de ki e mais de 25 de vida para voar. O voo não consome ki. Aos 60 pontos de vida, o uniforme se rasga. Aos 25, ele fica sem camisa.
 

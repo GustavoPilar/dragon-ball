@@ -105,12 +105,25 @@ button {
   border-radius: 50%;
   font-size: .8rem;
   pointer-events: auto;
+  display: grid;
+  place-items: center;
+}
+.actions button[hidden] { display: none; }
+.actions svg {
+  width: 57%;
+  height: 57%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
 }
 .actions [data-action="punch"] { grid-area: 1 / 1 / 2 / 3; }
 .actions [data-action="kick"] { grid-area: 1 / 3 / 2 / 5; }
 .actions [data-action="blast"] { grid-area: 1 / 5 / 2 / 7; background: #d9f0ff; border-color: #a5cde8; }
 .actions [data-action="jump"] { grid-area: 2 / 2 / 3 / 4; }
-.actions [data-action="charge"] { grid-area: 2 / 4 / 3 / 6; }
+.actions [data-action="charge"] { grid-area: 2 / 4 / 3 / 6; transform: translateY(-8px); }
 .actions [data-action="beam"] { grid-area: 2 / 6 / 3 / 8; background: #c8e6ff; border-color: #86b7df; }
 .actions { position: relative; }
 .actions #transform {
@@ -120,7 +133,6 @@ button {
   background: #fff0ab;
   border-color: #c88d29;
 }
-.actions #transform[hidden] { display: none; }
 .actions button[aria-pressed="true"] { background: #182940; border-color: #182940; color: #fff; }
 .controls button[data-action="charge"] { background: #ffdfb6; border-color: #eabf8c; color: #562705; }
 .controls button:is(:active, .pressed) { background: #182940; border-color: #182940; color: #fff; }
@@ -205,6 +217,22 @@ button:focus-visible { outline: 3px solid #315c97; outline-offset: 3px; }
   text-shadow: 0 1px #e6f5dd, 1px 0 #e6f5dd, -1px 0 #e6f5dd;
   pointer-events: none;
 }
+#wave-status, #stage-complete {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 48vw;
+  margin: 0;
+  padding: 5px 10px;
+  text-align: center;
+  color: #fff9df;
+  background: rgb(20 35 43 / 86%);
+  border-radius: 6px;
+  pointer-events: none;
+}
+#wave-status { top: max(43px, calc(env(safe-area-inset-top) + 30px)); font-size: .75rem; }
+#stage-complete { top: 33%; font-size: clamp(1.2rem, 4vw, 2rem); }
 #defeat {
   position: absolute;
   inset: 6rem 16px auto;
