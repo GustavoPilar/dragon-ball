@@ -23,6 +23,27 @@ const transformButton = document.querySelector('#transform');
 const chargeButton = document.querySelector('[data-action="charge"]');
 const waveStatus = document.querySelector('#wave-status');
 const stageComplete = document.querySelector('#stage-complete');
+const bossHud = document.querySelector('#boss-hud');
+const bossHealth = document.querySelector('#boss-health');
+const bossHealthValue = document.querySelector('#boss-health-value');
+const collectBalls = document.querySelector('#collect-balls');
+const victoryMessage = document.querySelector('#victory-message');
+const raditzLevel = !training && selectedLevel?.id === 'raditz';
+const namek = !training && selectedLevel?.id === 'namek';
+game.classList.toggle('boss-campaign', raditzLevel);
+if (raditzLevel) canvas.setAttribute('aria-label', 'Campo aberto da luta contra Raditz');
+if (namek) canvas.setAttribute('aria-label', 'Campos de Namek');
+
+const cutscene = document.querySelector('#cutscene');
+const sceneDialogue = document.querySelector('#scene-dialogue');
+const sceneLines = [
+  ['Raditz', 'Kakarotto. Demorou para eu encontrar você.'],
+  ['Goku', 'Meu nome é Goku. Quem é você?'],
+  ['Raditz', 'Seu irmão. Quero ver se ainda se lembra de como um Saiyajin luta.'],
+  ['Goku', 'Você fica longe do meu filho. Se quer lutar, estou aqui.'],
+];
+const scene = { active: raditzLevel, line: 0, time: 0, stepTime: 0 };
+let raditzEntranceX;
 
 const keys = new Map([
   ['ArrowLeft', 'left'], ['ArrowRight', 'right'],
@@ -63,12 +84,22 @@ const goldenFrames = new WeakMap();
 let noticeTime = 0;
 const defeatFallTime = 0.85;
 const defeatBlinkTime = 0.72;
-const waves = [
+const waves = namek ? [
+  { sides: [1, -1, 1], gap: 1.25, altitude: 0, followsFlight: false },
+  { sides: [-1, 1, -1, 1], gap: 0.9, altitude: 60, followsFlight: true },
+] : [
   { sides: [1, 1], gap: 2, altitude: 0, followsFlight: false },
   { sides: [-1, 1, -1, 1], gap: 0.85, altitude: 0, followsFlight: true },
   { sides: [1, -1, 1, -1], gap: 0.9, altitude: 220, followsFlight: true },
 ];
+const raditzAttacks = {
+  punch: { windup: 0.47, reach: 88, damage: 13, start: 3, strike: 4 },
+  kick: { windup: 0.61, reach: 110, damage: 17, start: 3, strike: 6 },
+  blast: { windup: 0.82, damage: 20, start: 7, strike: 8 },
+};
 const wave = { index: 0, spawned: 0, countdown: 2.5, resting: false };
+let boss = null;
+let bossIntro = 2.5;
 const exit = { x: world.width - 145, unlocked: false, reached: false };
 const seed = { position: world.center + (Math.random() - 0.5) * 340, altitude: null, delay: 2.8, collected: false };
 let seedsInInventory = 0;
@@ -238,7 +269,7 @@ function triggerJump(now) {
 }
 
 function press(input, action) {
-  if (pauseMenu.open || !landscape.matches || !sprites || !playerCombat.health || heldInputs.has(input)) return;
+  if (scene.active || pauseMenu.open || !landscape.matches || !sprites || !playerCombat.health || heldInputs.has(input)) return;
   heldInputs.set(input, action);
   if (itemAction || transforming !== null) return;
   if (action === 'transform') {
@@ -337,6 +368,7 @@ for (const button of buttons) {
 }
 
 window.addEventListener('keydown', (event) => {
+  if (!playing || scene.active) return;
   const action = keys.get(event.code);
   if (!action) return;
   event.preventDefault();
@@ -354,7 +386,10 @@ for (const event of ['contextmenu', 'selectstart']) {
 for (const event of ['gesturestart', 'gesturechange']) {
   document.addEventListener(event, (event) => event.preventDefault(), { passive: false });
 }
-landscape.addEventListener('change', resetInputs);
+landscape.addEventListener('change', () => {
+  resetInputs();
+  if (landscape.matches && scene.active && !cutscene.hidden) sceneDialogue.focus();
+});
 
 pause.addEventListener('click', () => {
   pauseMenu.showModal();
@@ -392,7 +427,7 @@ function addKi(amount) {
 }
 
 function canTransform() {
-  return ki === 100 && !superSaiyan && canUseItem();
+  return training && ki === 100 && !superSaiyan && canUseItem();
 }
 
 function attackDamage(baseDamage) {
@@ -432,7 +467,7 @@ seedSlot.addEventListener('click', () => {
 
 function updateSeed(dt, floor, size) {
   // Leave a way back into the aerial fight if wounds block flight.
-  if (wave.index === waves.length - 1 && !exit.unlocked && playerCombat.health &&
+  if (training && wave.index === waves.length - 1 && !exit.unlocked && playerCombat.health &&
       playerCombat.health <= criticalHealth && seed.collected && !seedsInInventory && !itemAction) {
     seed.position = boundedX(x, world.width, 55 * size);
     seed.altitude = null;
@@ -499,18 +534,23 @@ function enforceFlightRestriction() {
 
 function damage(target, amount, direction, altitude) {
   target.health = Math.max(0, target.health - amount);
-  target.reaction = { time: 0, direction, altitude };
   if (target === playerCombat) {
     updateHealthMeter();
     facing = -direction;
     enforceFlightRestriction();
   } else {
     target.meter.value = target.health;
+    if (target.boss) bossHealthValue.textContent = target.health + '/' + bossHealth.max;
+    if (target.boss && target.health && (target.attackTime !== null || target.staggerCooldown > 0)) {
+      return;
+    }
+    if (target.boss) target.staggerCooldown = 0.72;
     target.facing = -direction;
-    if (!target.health) {
+    if (!target.health && !target.boss) {
       target.meter.remove();
     }
   }
+  target.reaction = { time: 0, direction, altitude };
 }
 
 function inRange(dx, dy, direction, reach, size) {
@@ -537,14 +577,38 @@ function resolveAttack(name, size) {
 }
 
 function hitEnemy(enemy, amount, direction) {
+  const previousReaction = enemy.reaction;
   damage(enemy, amount, direction, enemy.altitude);
+  if (enemy.boss && enemy.health && enemy.reaction === previousReaction) return;
   enemy.attackTime = null;
-  enemy.cooldown = 0.4;
+  enemy.cooldown = enemy.boss ? 0.18 : 0.4;
+}
+
+function hurtPlayer(amount, direction) {
+  if (playerCombat.reaction || !playerCombat.health) return;
+  damage(playerCombat, amount, direction, airborneHeight);
+  attack = null;
+  jumpElapsed = null;
+  lastJumpPress = -Infinity;
+  chargeTime = 0;
+  if (playerCombat.health) return;
+  setFlying(false);
+  blasts.length = 0;
+  beam = null;
+  superSaiyan = false;
+  itemAction = null;
+  combatNotice.hidden = true;
+  resetInputs();
 }
 
 function updateBlasts(dt, width, size) {
   for (let index = blasts.length - 1; index >= 0; index--) {
     const blast = blasts[index];
+    if (blast.hostile) {
+      if (updateHostileBlast(blast, dt, width, size)) blasts.splice(index, 1);
+      if (!playerCombat.health) return;
+      continue;
+    }
     const distance = 640 * dt;
     const radius = 31 * size;
     let target;
@@ -564,14 +628,33 @@ function updateBlasts(dt, width, size) {
   }
 }
 
+function updateHostileBlast(blast, dt, width, size) {
+  if (!boss?.health) return true;
+  const dx = 440 * dt * blast.direction;
+  const dy = blast.verticalSpeed * dt;
+  const ahead = (x - blast.x) * blast.direction;
+  const altitude = blast.altitude + dy * Math.max(0, Math.min(1, ahead / Math.abs(dx || 1))) - airborneHeight;
+  const hit = ahead >= -29 * size && ahead <= Math.abs(dx) + 29 * size &&
+    altitude >= 10 * size && altitude <= 130 * size;
+  if (hit) {
+    hurtPlayer(blast.damage, blast.direction);
+    return true;
+  }
+  blast.x += dx;
+  blast.altitude += dy;
+  blast.life -= dt;
+  return blast.life <= 0 || blast.x < 0 || blast.x > width || blast.altitude < 0;
+}
+
 function drawBlast(blast, floor, size) {
   const y = floor - blast.altitude;
   const radius = 14 * size;
-  context.fillStyle = '#a4e7ff';
+  context.fillStyle = blast.hostile ? '#f5a0f3' : '#a4e7ff';
   context.fillRect(blast.x - blast.direction * radius * 2, y - radius / 4,
     blast.direction * radius * 2, radius / 2);
-  for (const [scale, color] of [[1, '#2089db'], [0.75, '#76dfff'], [0.47, '#f4fcff']]) {
-    context.fillStyle = color;
+  const colors = blast.hostile ? ['#a537a2', '#f77ce8', '#fff0fb'] : ['#2089db', '#76dfff', '#f4fcff'];
+  for (const [index, scale] of [1, 0.75, 0.47].entries()) {
+    context.fillStyle = colors[index];
     context.beginPath();
     context.arc(blast.x, y, radius * scale, 0, Math.PI * 2);
     context.fill();
@@ -752,8 +835,96 @@ function updateWaves(dt, width, height, size) {
   wave.countdown = current.gap;
 }
 
+function updateBossBattle(dt, width, size) {
+  if (!playerCombat.health || exit.unlocked) return;
+  if (boss) {
+    if (boss.gone) {
+      exit.unlocked = true;
+      bossHud.hidden = true;
+      for (let index = blasts.length - 1; index >= 0; index--) {
+        if (blasts[index].hostile) blasts.splice(index, 1);
+      }
+    }
+    return;
+  }
+  bossIntro -= dt;
+  if (bossIntro > 0) return;
+  boss = {
+    boss: true, meter: bossHealth, health: bossHealth.max,
+    x: boundedX(raditzEntranceX ?? camera.left + width - 70 * size, world.width, 64 * size),
+    altitude: 0, facing: -1, reaction: null, gone: false,
+    attackTime: null, cooldown: 0.55, staggerCooldown: 0, moves: 0, attackName: null,
+  };
+  boss.facing = boss.x > x ? -1 : 1;
+  bossHealthValue.textContent = boss.health + '/' + bossHealth.max;
+  bossHud.hidden = false;
+  enemies.push(boss);
+}
+
+function updateRaditz(enemy, dt, size) {
+  const poses = sprites.raditz;
+  if (!playerCombat.health) {
+    enemy.attackTime = null;
+    return poses[0];
+  }
+  const enraged = enemy.health <= bossHealth.max / 2;
+  const dx = x - enemy.x;
+  const dy = airborneHeight - enemy.altitude;
+  if (enemy.attackTime !== null) {
+    const move = raditzAttacks[enemy.attackName];
+    const windup = enemy.windup;
+    const before = enemy.attackTime;
+    enemy.attackTime += dt;
+    if (before < windup && enemy.attackTime >= windup) {
+      if (enemy.attackName === 'blast') {
+        const source = enemy.x + enemy.facing * 55 * size;
+        const travel = Math.max(0.15, Math.abs(x - source) / 440);
+        blasts.push({
+          hostile: true, x: source, altitude: enemy.altitude + 100 * size, direction: enemy.facing,
+          verticalSpeed: Math.max(-260, Math.min(260, (dy - 14 * size) / travel)),
+          damage: move.damage, life: 2,
+        });
+      } else if (inRange(dx, dy, enemy.facing, move.reach, size)) {
+        hurtPlayer(move.damage, enemy.facing);
+      }
+    }
+    if (enemy.attackTime < windup) return poses[move.start];
+    if (enemy.attackTime < windup + 0.19) return poses[move.strike];
+    if (enemy.attackTime < windup + 0.58) return poses[5];
+    enemy.attackTime = null;
+    enemy.cooldown = enraged ? 0.54 : 0.95;
+  }
+
+  enemy.cooldown = Math.max(0, enemy.cooldown - dt);
+  if (Math.abs(dx) > 2) enemy.facing = Math.sign(dx);
+  if (!enemy.cooldown) {
+    if (inRange(dx, dy, enemy.facing, 80, size)) {
+      enemy.attackName = enemy.moves % 2 ? 'kick' : 'punch';
+    } else if (Math.abs(dx) >= 130 * size && Math.abs(dx) <= 360 * size && Math.abs(dy) < 135 * size) {
+      enemy.attackName = 'blast';
+    } else {
+      enemy.attackName = null;
+    }
+    if (enemy.attackName) {
+      enemy.attackTime = 0;
+      enemy.moves++;
+      const move = raditzAttacks[enemy.attackName];
+      enemy.windup = move.windup * (enraged ? 0.78 : 1);
+      return poses[move.start];
+    }
+  }
+
+  const gap = Math.max(0, Math.abs(dx) - 61 * size);
+  const speed = enraged ? 235 : 190;
+  enemy.x += Math.sign(dx) * Math.min(gap, speed * dt);
+  enemy.altitude += Math.sign(dy) * Math.min(Math.abs(dy), speed * dt);
+  if (enemy.altitude > 24 * size) return poses[gap > 4 || Math.abs(dy) > 8 ? 2 : 9];
+  return poses[gap > 4 ? Math.floor(enemy.x / 38) % 2 : 0];
+}
+
 function spawnEnemy(plan, side, width, height, size) {
   const meter = enemyHealthTemplate.content.firstElementChild.cloneNode(true);
+  if (namek) meter.setAttribute('aria-label', 'Vida do soldado de Freeza');
   game.append(meter);
   enemies.push({
     meter, health: meter.max, reaction: null, gone: false,
@@ -766,14 +937,17 @@ function spawnEnemy(plan, side, width, height, size) {
 
 function updateEnemy(enemy, dt, width, height, size) {
   enemy.x = boundedX(enemy.x, width, 52 * size);
+  if (enemy.boss) enemy.staggerCooldown = Math.max(0, enemy.staggerCooldown - dt);
   if (enemy.reaction) {
     const result = react(enemy, dt, height, (dx) => {
       enemy.x = boundedX(enemy.x + dx, width, 52 * size);
     });
     enemy.altitude = result.altitude;
     enemy.gone = result.finished;
-    return result.visible ? sprites.enemyHit[result.frameIndex] : null;
+    const frames = enemy.boss ? sprites.raditzHit : sprites.enemyHit;
+    return result.visible ? frames[result.frameIndex] : null;
   }
+  if (enemy.boss) return updateRaditz(enemy, dt, size);
 
   const dx = x - enemy.x;
   const dy = airborneHeight - enemy.altitude;
@@ -787,20 +961,7 @@ function updateEnemy(enemy, dt, width, height, size) {
     enemy.attackTime += dt;
     if (before < 0.43 && enemy.attackTime >= 0.43 && !playerCombat.reaction &&
         inRange(dx, dy, enemy.facing, 76, size)) {
-      damage(playerCombat, 15, enemy.facing, airborneHeight);
-      attack = null;
-      jumpElapsed = null;
-      lastJumpPress = -Infinity;
-      chargeTime = 0;
-      if (!playerCombat.health) {
-        setFlying(false);
-        blasts.length = 0;
-        beam = null;
-        superSaiyan = false;
-        itemAction = null;
-        combatNotice.hidden = true;
-        resetInputs();
-      }
+      hurtPlayer(15, enemy.facing);
     }
     if (enemy.attackTime < 0.43) return sprites.enemy[2];
     if (enemy.attackTime < 0.55) return sprites.enemy[3];
@@ -944,9 +1105,11 @@ function update(dt, width, height, size) {
 }
 
 function drawLandscape(width, height, groundLine) {
+  const topColor = namek ? [67, 175, 146] : training ? [117, 190, 198] : [77, 164, 237];
+  const bottomColor = namek ? [174, 230, 184] : training ? [212, 232, 181] : [177, 218, 244];
   const sky = context.createLinearGradient(0, 0, 0, height);
-  sky.addColorStop(0, '#75bec6');
-  sky.addColorStop(1, '#d4e8b5');
+  sky.addColorStop(0, 'rgb(' + topColor.join(', ') + ')');
+  sky.addColorStop(1, 'rgb(' + bottomColor.join(', ') + ')');
   context.fillStyle = sky;
   context.fillRect(0, 0, width, height);
 
@@ -973,8 +1136,8 @@ function drawLandscape(width, height, groundLine) {
     if (artY > -75) {
       const blend = context.createLinearGradient(0, artY, 0, artY + 75);
       const progress = Math.max(0, Math.min(1, artY / height));
-      const color = [117, 190, 198].map((top, index) =>
-        Math.round(top + ([212, 232, 181][index] - top) * progress)).join(', ');
+      const color = topColor.map((top, index) =>
+        Math.round(top + (bottomColor[index] - top) * progress)).join(', ');
       blend.addColorStop(0, 'rgb(' + color + ')');
       blend.addColorStop(1, 'rgba(' + color + ', 0)');
       context.fillStyle = blend;
@@ -1005,6 +1168,7 @@ function drawGround(width, height, floor) {
     context.fillRect(tile + 8, floor + 42 + tile % 33, 17, 6);
   }
 
+  if (!training) return;
   const ringLeft = world.center - 315;
   const ringWidth = 630;
   if (ringLeft >= right || ringLeft + ringWidth <= left) return;
@@ -1047,19 +1211,129 @@ function drawExit(width, floor) {
   }
 }
 
-function updateStageStatus() {
-  if (exit.unlocked && playerCombat.health && Math.abs(x - exit.x) < 64 && airborneHeight < 55) {
-    exit.reached = true;
-    stageComplete.hidden = false;
+function drawDragonBalls(width, floor, time) {
+  if (!exit.unlocked || exit.reached || exit.x + 86 < camera.left || exit.x - 86 > camera.left + width) return;
+  context.fillStyle = '#485e57';
+  context.fillRect(exit.x - 77, floor - 9, 154, 9);
+  context.fillStyle = '#b8dcb9';
+  context.fillRect(exit.x - 77, floor - 11, 154, 3);
+  for (let index = 0; index < 7; index++) {
+    const px = exit.x + (index - 3) * 20;
+    const py = floor - 25 - Math.sin(time / 300 + index * 0.7) * 3;
+    context.fillStyle = '#713515';
+    context.beginPath();
+    context.arc(px, py, 9, 0, Math.PI * 2);
+    context.fill();
+    context.fillStyle = '#ffad36';
+    context.beginPath();
+    context.arc(px, py, 7.6, 0, Math.PI * 2);
+    context.fill();
+    context.fillStyle = '#fff0a3';
+    context.fillRect(px - 4, py - 5, 3, 2);
+    context.fillStyle = '#a82b1e';
+    for (let star = 0; star <= index; star++) {
+      const angle = star * Math.PI * 2 / (index + 1) - Math.PI / 2;
+      const radius = index ? 3.5 : 0;
+      const sx = Math.round(px + Math.cos(angle) * radius);
+      const sy = Math.round(py + Math.sin(angle) * radius);
+      context.fillRect(sx - 1, sy, 3, 1);
+      context.fillRect(sx, sy - 1, 1, 3);
+    }
   }
+}
+
+function nearExit() {
+  return exit.unlocked && !exit.reached && playerCombat.health &&
+    Math.abs(x - exit.x) < 69 && airborneHeight < 55;
+}
+
+function completeStage(message) {
+  exit.reached = true;
+  victoryMessage.textContent = message;
+  stageComplete.hidden = false;
+  collectBalls.hidden = true;
+  recordCompletedLevel();
+}
+
+collectBalls.addEventListener('click', () => {
+  if (namek && nearExit() && canUseItem()) completeStage('7 Esferas do Dragão reunidas');
+});
+
+function updateStageStatus() {
+  collectBalls.hidden = !namek || !nearExit() || !canUseItem();
+  if (!namek && nearExit()) completeStage('Fase concluída');
   const label = 'Onda ' + (wave.index + 1) + '/' + waves.length;
   let text = label;
-  if (wave.resting) text += ' · Intervalo';
-  else if (wave.index === 2) text += ' · Voe para combater';
-  else if (!wave.spawned) text += ' · Prepare-se';
-  if (exit.unlocked) text = 'Saída liberada · Siga à direita';
-  waveStatus.hidden = exit.reached || !playerCombat.health;
+  if (!raditzLevel) {
+    if (wave.resting) text += ' · Intervalo';
+    else if (training && wave.index === 2) text += ' · Voe para combater';
+    else if (!wave.spawned) text += ' · Prepare-se';
+  } else {
+    text = !boss ? 'Raditz se aproxima' : boss.health <= bossHealth.max / 2 && boss.health > 0
+      ? 'Raditz intensificou os ataques' : '';
+  }
+  if (exit.unlocked) text = namek ? 'Esferas liberadas · Siga à direita'
+    : training ? 'Saída liberada · Siga à direita' : 'Raditz derrotado · Siga à direita';
+  waveStatus.hidden = !text || exit.reached || !playerCombat.health;
   if (waveStatus.textContent !== text) waveStatus.textContent = text;
+}
+
+function showSceneLine() {
+  const [speaker, line] = sceneLines[scene.line];
+  sceneDialogue.dataset.speaker = speaker;
+  document.querySelector('#scene-speaker').textContent = speaker;
+  document.querySelector('#scene-line').textContent = line;
+}
+
+function finishScene() {
+  if (!scene.active || !sprites) return;
+  scene.active = false;
+  cutscene.hidden = true;
+  game.classList.remove('cutscene-active');
+  bossIntro = 0.35;
+  resetInputs();
+  canvas.focus();
+}
+
+function advanceScene() {
+  if (!scene.active || !sprites) return;
+  if (scene.line === sceneLines.length - 1) {
+    finishScene();
+  } else {
+    scene.line++;
+    scene.stepTime = 0;
+    showSceneLine();
+  }
+}
+
+sceneDialogue.addEventListener('click', advanceScene);
+canvas.addEventListener('click', advanceScene);
+document.querySelector('#skip-scene').addEventListener('click', finishScene);
+
+function drawScene(dt, width, height, groundLine, size, density) {
+  scene.time += dt;
+  scene.stepTime += dt;
+  const distance = Math.min(width * 0.23, 155);
+  const gokuX = world.center - distance;
+  raditzEntranceX = world.center + distance;
+  x = gokuX;
+  camera.left = Math.round(Math.max(0, Math.min(world.width - width, world.center - width / 2)));
+  camera.lift = 0;
+  const arrival = Math.min(1, scene.time / 0.7);
+  const raditzX = raditzEntranceX + Math.min(width * 0.38, 300) * (1 - arrival) ** 2;
+  const raditzY = groundLine - 65 * size * (1 - arrival) ** 2;
+  const ready = scene.line === sceneLines.length - 1;
+  const beat = Math.min(1, scene.stepTime / 0.24);
+  context.setTransform(density, 0, 0, density, 0, 0);
+  context.imageSmoothingEnabled = false;
+  drawLandscape(width, height, groundLine);
+  context.translate(-camera.left, 0);
+  drawGround(width, height, groundLine);
+  drawFighter(ready ? sprites.punch[0] : sprites.idle[Math.floor(scene.time * 4) % 5],
+    gokuX + (ready ? beat * 10 : 0), groundLine, 1, size);
+  const raditzPose = arrival < 0.9 ? 2 : ready || scene.line === 2 ? 5 : 0;
+  drawFighter(sprites.raditz[raditzPose], raditzX - (scene.line === 2 ? beat * 12 : 0),
+    raditzY, -1, size);
 }
 
 function render(time) {
@@ -1077,6 +1351,10 @@ function render(time) {
   x ??= world.center;
   const groundLine = Math.round(height * 0.71);
   const size = Math.min(1.42, height * 0.37 / 150);
+  if (scene.active) {
+    drawScene(dt, width, height, groundLine, size, density);
+    return;
+  }
   if (transforming !== null) {
     transforming += dt;
     if (transforming >= transformDuration) {
@@ -1107,7 +1385,8 @@ function render(time) {
   if (!focusing) {
     updateSeed(dt, groundLine, size);
     updateBlasts(dt, world.width, size);
-    updateWaves(dt, width, height, size);
+    if (raditzLevel) updateBossBattle(dt, width, size);
+    else updateWaves(dt, width, height, size);
     if (beam) applyBeam(width, size);
   }
   updateStageStatus();
@@ -1118,7 +1397,8 @@ function render(time) {
   drawLandscape(width, height, groundLine);
   context.translate(-camera.left, 0);
   drawGround(width, height, floor);
-  drawExit(width, floor);
+  if (namek) drawDragonBalls(width, floor, time);
+  else drawExit(width, floor);
   if (!seed.collected && seed.altitude !== null) {
     drawSeed(seed.position, floor - seed.altitude - 4 * size, size * 0.68);
   }
@@ -1127,12 +1407,20 @@ function render(time) {
     const frame = enemy.frame;
     if (!frame) continue;
     const baseline = floor - enemy.altitude;
-    if (enemy.health) {
+    if (enemy.health && !enemy.boss) {
       const barY = baseline - frame.frame.height * frame.scale * size - 13;
       enemy.meter.hidden = enemy.x < camera.left || enemy.x > camera.left + width || barY < 1 || baseline > height + 80;
       enemy.meter.style.transform = 'translate(' + Math.round(enemy.x - camera.left) + 'px, ' + Math.round(barY) + 'px) translateX(-50%)';
     }
     drawFighter(frame, enemy.x, baseline, enemy.facing, size);
+    if (enemy.boss && !enemy.reaction && enemy.attackName === 'blast' &&
+        enemy.attackTime !== null && enemy.attackTime < enemy.windup) {
+      const radius = (3 + 10 * enemy.attackTime / enemy.windup) * size;
+      context.fillStyle = '#f784e9';
+      context.beginPath();
+      context.arc(enemy.x + enemy.facing * 48 * size, baseline - 91 * size, radius, 0, Math.PI * 2);
+      context.fill();
+    }
   }
   for (let index = enemies.length - 1; index >= 0; index--) {
     if (enemies[index].gone) enemies.splice(index, 1);
@@ -1217,12 +1505,14 @@ function readOutfit(image, top) {
 
 async function start() {
   try {
-    const [base, charge, combat, damaged, kame, senzu, ssj, arena] = await Promise.all([
+    const [base, charge, combat, damaged, kame, senzu, ssj, arena, raditz, scout] = await Promise.all([
       loadImage('assets/goku-base.png'), loadImage('assets/goku-ki.png'), loadImage('assets/combat.png'),
       loadImage('assets/goku-damaged.png'), loadImage('assets/goku-kamehameha.png'),
       loadImage('assets/goku-senzu.png'),
-      loadImage('assets/goku-ssj.png'),
-      loadImage('assets/martial-arena.png'),
+      training ? loadImage('assets/goku-ssj.png') : null,
+      loadImage(training ? 'assets/martial-arena.png' : namek ? 'assets/namek.png' : 'assets/raditz-field.png'),
+      raditzLevel ? loadImage('assets/raditz.png') : null,
+      namek ? loadImage('assets/freeza-scout.png') : null,
     ]);
     landscapeArt = arena;
     const baseColumns = Array.from({ length: 6 }, (_, index) => Math.round(base.width * index / 5));
@@ -1233,10 +1523,14 @@ async function start() {
     for (const pose of [...idle, ...walk, ...jump, ...fly, ...punch, ...kick]) pose.scale = baseScale;
     const combatColumns = Array.from({ length: 6 }, (_, index) => Math.round(index * combat.width / 5));
     const combatRows = Array.from({ length: 4 }, (_, index) => Math.round(index * combat.height / 3));
-    const enemyFrames = readRow(combat, combatColumns, combatRows[0], combatRows[1], 1, true);
-    const enemyHit = readRow(combat, combatColumns, combatRows[1], combatRows[2], 1, true);
+    const enemyArt = scout ?? combat;
+    const enemyColumns = scout
+      ? Array.from({ length: 6 }, (_, index) => Math.round(scout.width * index / 5)) : combatColumns;
+    const enemyRows = scout ? [0, Math.round(scout.height / 2), scout.height] : combatRows;
+    const enemyFrames = readRow(enemyArt, enemyColumns, enemyRows[0], enemyRows[1], 1, true);
+    const enemyHit = readRow(enemyArt, enemyColumns, enemyRows[1], enemyRows[2], 1, true);
     const gokuHit = readRow(combat, combatColumns, combatRows[2], combatRows[3], 1, true);
-    const enemyScale = 108 / enemyFrames[0].frame.height;
+    const enemyScale = (namek ? 128 : 108) / enemyFrames[0].frame.height;
     for (const frame of [...enemyFrames, ...enemyHit]) frame.scale = enemyScale;
     const gokuScale = 132 / gokuHit[0].frame.height;
     for (const frame of gokuHit) frame.scale = gokuScale;
@@ -1276,17 +1570,34 @@ async function start() {
       kick,
       charge: readRow(charge, chargeColumns, 193, 519, 0.46),
     };
+    if (raditz) {
+      const motion = readRow(raditz, [0, 300, 628, 971, 1282, 1619], 0, 312, 1, true);
+      const strikes = readRow(raditz, [0, 289, 634, 964, 1280, 1619], 312, 646, 1, true);
+      const hit = readRow(raditz, [0, 296, 615, 938, 1282, 1619], 646, 971, 1, true);
+      const scale = 179 / motion[0].frame.height;
+      for (const pose of [...motion, ...strikes, ...hit]) pose.scale = scale;
+      sprites.raditz = [...motion, ...strikes];
+      sprites.raditzHit = hit;
+    }
     const ssjColumns = [223, 461, 696, 932, 1168, 1397];
     const ssjRows = [
       ['idle', 5, 142, 1.02], ['walk', 142, 262, 1.16], ['jump', 370, 488, 1.15],
       ['fly', 593, 703, 1.22], ['punch', 703, 809, 1.16], ['kick', 809, 931, 1.1],
       ['charge', 931, 1111, 0.84],
     ];
-    for (const [action, top, bottom, scale] of ssjRows) {
-      const frames = readRow(ssj, ssjColumns, top, bottom, scale);
-      sprites[action].forEach((pose, index) => goldenFrames.set(pose, frames[index]));
+    if (ssj) {
+      for (const [action, top, bottom, scale] of ssjRows) {
+        const frames = readRow(ssj, ssjColumns, top, bottom, scale);
+        sprites[action].forEach((pose, index) => goldenFrames.set(pose, frames[index]));
+      }
     }
     status.hidden = true;
+    if (scene.active) {
+      showSceneLine();
+      game.classList.add('cutscene-active');
+      cutscene.hidden = false;
+      if (landscape.matches) sceneDialogue.focus();
+    }
     requestAnimationFrame(render);
   } catch (error) {
     status.textContent = 'Não foi possível carregar os sprites. Recarregue a página.';
@@ -1294,4 +1605,4 @@ async function start() {
   }
 }
 
-start();
+if (playing) start();

@@ -3,12 +3,35 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-  <title>Goku · Treino</title>
+  <title>Dragon Ball · Sagas</title>
   <link rel="stylesheet" href="style.css">
+  <script src="menu.js" defer></script>
   <script src="game.js" defer></script>
 </head>
 <body>
-  <main id="game" aria-label="Treino do Goku">
+  <main id="menu">
+    <div class="menu-panel">
+      <section id="main-menu" aria-labelledby="game-title">
+        <h1 id="game-title">Dragon Ball</h1>
+        <div class="menu-list">
+          <button id="continue-game" type="button">Continuar jogo</button>
+          <button type="button" disabled>Iniciar jogo</button>
+          <button type="button" disabled>Opções</button>
+        </div>
+      </section>
+      <section id="saga-menu" aria-labelledby="saga-title" hidden>
+        <button class="menu-back" type="button" data-back="main">← Voltar</button>
+        <h1 id="saga-title" tabindex="-1">Escolha a saga</h1>
+        <div id="saga-list" class="menu-list"></div>
+      </section>
+      <section id="level-menu" aria-labelledby="level-title" hidden>
+        <button class="menu-back" type="button" data-back="sagas">← Sagas</button>
+        <h1 id="level-title" tabindex="-1"></h1>
+        <div id="level-list" class="menu-list"></div>
+      </section>
+    </div>
+  </main>
+  <main id="game" aria-label="Dragon Ball" hidden>
     <div class="hud">
       <div class="ki-label"><label for="goku-health">Goku · Vida</label><output id="goku-health-value">100/100</output></div>
       <meter class="health-meter" id="goku-health" min="0" max="100" value="100"></meter>
@@ -18,6 +41,10 @@
     <template id="enemy-health-template">
       <meter class="enemy-health health-meter" aria-label="Vida do Cell Jr." min="0" max="60" value="60"></meter>
     </template>
+    <div id="boss-hud" hidden>
+      <div class="ki-label"><label for="boss-health">Raditz</label><output id="boss-health-value"></output></div>
+      <meter class="health-meter" id="boss-health" min="0" max="360" value="360"></meter>
+    </div>
     <button id="fullscreen" type="button" aria-label="Tela cheia" title="Tela cheia">⛶</button>
     <button id="pause" type="button" aria-label="Pausar" title="Pausar">
       <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -25,12 +52,23 @@
         <rect x="14" y="4" width="4" height="16" rx="1"/>
       </svg>
     </button>
-    <canvas id="arena" aria-label="Arena marcial entre penhascos"></canvas>
+    <canvas id="arena" aria-label="Arena marcial entre penhascos" tabindex="-1"></canvas>
     <p id="status" role="status">Carregando sprites…</p>
     <p id="defeat" role="status" hidden>Goku foi derrotado. Atualize a página para tentar de novo.</p>
     <p id="combat-notice" role="status" hidden></p>
-    <p id="wave-status" role="status">Onda 1/3 · Prepare-se</p>
-    <p id="stage-complete" role="status" hidden>Fase concluída</p>
+    <p id="wave-status" role="status" hidden></p>
+    <div id="stage-complete" hidden>
+      <p id="victory-message" role="status">Fase concluída</p>
+      <a id="back-to-levels" href="./">Voltar às fases</a>
+    </div>
+    <div id="cutscene" hidden>
+      <button id="skip-scene" type="button">Pular cena</button>
+      <button id="scene-dialogue" type="button" aria-label="Avançar diálogo" aria-describedby="scene-speaker scene-line">
+        <strong id="scene-speaker"></strong>
+        <span id="scene-line" aria-live="polite"></span>
+        <span class="scene-next" aria-hidden="true">›</span>
+      </button>
+    </div>
     <div class="controls">
       <div id="joystick" role="group" aria-label="Joystick de movimento" aria-description="Arraste para mover, olhar para cima ou para baixo, ou controlar o voo. Também funciona com as setas do teclado.">
         <span class="stick-thumb" aria-hidden="true"></span>
@@ -83,6 +121,7 @@
       </div>
     </div>
     <button id="pick-up" type="button" hidden>Pegar</button>
+    <button id="collect-balls" type="button" hidden>Pegar as esferas</button>
     <div class="inventory" role="group" aria-label="Inventário">
       <button id="seed-slot" class="inventory-slot" type="button" aria-label="Usar Semente dos Deuses" title="Usar Semente dos Deuses" disabled>
         <svg viewBox="0 0 16 16" aria-hidden="true">

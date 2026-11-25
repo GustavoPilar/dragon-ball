@@ -1,6 +1,6 @@
 # Dragon Ball
 
-Protótipo web de treino com Goku em forma base. Sirva a pasta localmente com `python3 -m http.server 3000` e abra `http://localhost:3000`.
+Jogo web de luta com Goku. Sirva a pasta localmente com `python3 -m http.server 3000` e abra `http://localhost:3000`. Selecione **Continuar jogo** para escolher uma saga. **Iniciar jogo** e **Opções** serão implementados depois. Use `?modo=treino` no endereço para jogar a arena dos Cell Jr.
 
 | Ação | Tela | Teclado |
 | --- | --- | --- |
@@ -14,11 +14,15 @@ Protótipo web de treino com Goku em forma base. Sirva a pasta localmente com `p
 | Carregar ki | Segure Ki até 100% | Segure C |
 | Disparar uma esfera de ki | Toque em Poder | V |
 | Disparar Kamehameha | Toque em Kame | B |
-| Virar Super Saiyajin | Toque em SSJ com o ki cheio | T |
+| Virar Super Saiyajin no treino | Toque em SSJ com o ki cheio | T |
 
 O jogo fica disponível com a tela na horizontal. O botão de tela cheia solicita o bloqueio da orientação quando o navegador oferece suporte.
 
-Enfrente três ondas de Cell Jr. A primeira acontece no chão, a segunda traz inimigos dos dois lados e a terceira acontece no ar. Entre as ondas há um breve intervalo. Derrote a última onda e alcance o portal no extremo direito para concluir a fase.
+Na Saga Saiyajin, **A chegada de Raditz** começa com uma cena que pode ser avançada pelo diálogo ou pulada. Raditz tem 360 de vida, luta no chão e no ar e usa socos, chutes e disparos de ki. Seus ataques ficam mais rápidos abaixo de metade da vida. Derrote-o e alcance a saída à direita. Na campanha, a transformação em Super Saiyajin fica bloqueada até a futura luta contra Freeza.
+
+Na Saga Freeza, **As Esferas de Namek** traz duas ondas de patrulheiros. Derrote-os, siga até o extremo direito e toque em **Pegar as esferas** para reunir as sete. O menu marca as fases concluídas quando o navegador permite salvar o progresso.
+
+No treino, enfrente três ondas de Cell Jr. A primeira acontece no chão, a segunda traz inimigos dos dois lados e a terceira acontece no ar. Entre as ondas há um breve intervalo. Derrote a última onda e alcance o portal no extremo direito para concluir a fase.
 
 Socos e chutes acertam todos os inimigos próximos à frente. Cada inimigo derrotado com soco ou chute rende 20 pontos de ki, até o limite de 100. As barras vermelhas acompanham os inimigos. Se Goku for derrotado, recarregue a página para recomeçar.
 
