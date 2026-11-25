@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <title>Dragon Ball · Sagas</title>
   <link rel="stylesheet" href="style.css">
+  <script src="campaign.js" defer></script>
   <script src="menu.js" defer></script>
   <script src="game.js" defer></script>
 </head>
@@ -33,7 +34,8 @@
   </main>
   <main id="game" aria-label="Dragon Ball" hidden>
     <div class="hud">
-      <div class="ki-label"><label for="goku-health">Goku · Vida</label><output id="goku-health-value">100/100</output></div>
+      <div class="ki-label"><label id="hero-health-name" for="goku-health">Goku · Vida</label><output id="goku-health-value">100/100</output></div>
+      <output id="hero-form" hidden></output>
       <meter class="health-meter" id="goku-health" min="0" max="100" value="100"></meter>
       <div class="ki-label"><label for="ki">KI</label><output id="ki-value" for="ki">0%</output></div>
       <meter id="ki" min="0" max="100" value="0">0%</meter>
@@ -42,8 +44,9 @@
       <meter class="enemy-health health-meter" aria-label="Vida do Cell Jr." min="0" max="60" value="60"></meter>
     </template>
     <div id="boss-hud" hidden>
-      <div class="ki-label"><label for="boss-health">Raditz</label><output id="boss-health-value"></output></div>
+      <div class="ki-label"><label id="boss-name" for="boss-health">Raditz</label><output id="boss-health-value"></output></div>
       <meter class="health-meter" id="boss-health" min="0" max="360" value="360"></meter>
+      <div id="boss-segments" aria-hidden="true" hidden></div>
     </div>
     <button id="fullscreen" type="button" aria-label="Tela cheia" title="Tela cheia">⛶</button>
     <button id="pause" type="button" aria-label="Pausar" title="Pausar">

@@ -26,13 +26,55 @@ const stageComplete = document.querySelector('#stage-complete');
 const bossHud = document.querySelector('#boss-hud');
 const bossHealth = document.querySelector('#boss-health');
 const bossHealthValue = document.querySelector('#boss-health-value');
+const bossName = document.querySelector('#boss-name');
+const bossSegments = document.querySelector('#boss-segments');
+const heroHealthName = document.querySelector('#hero-health-name');
+const heroForm = document.querySelector('#hero-form');
 const collectBalls = document.querySelector('#collect-balls');
 const victoryMessage = document.querySelector('#victory-message');
 const raditzLevel = !training && selectedLevel?.id === 'raditz';
 const namek = !training && selectedLevel?.id === 'namek';
-game.classList.toggle('boss-campaign', raditzLevel);
+const bossLevel = playing && !training && !namek;
+const encounters = selectedLevel?.encounters ?? [];
+let encounterIndex = 0;
+let hero = encounters[0]?.forms[0]?.hero ?? encounters[0]?.hero ?? selectedLevel?.hero ?? 'goku';
+let currentPower = null;
+let pendingPower = null;
+const trainingPower = power('gokuSsj', 'Super Saiyajin');
+const roster = new Map();
+game.classList.toggle('boss-campaign', bossLevel);
 if (raditzLevel) canvas.setAttribute('aria-label', 'Campo aberto da luta contra Raditz');
 if (namek) canvas.setAttribute('aria-label', 'Campos de Namek');
+if (bossLevel && !raditzLevel) canvas.setAttribute('aria-label', selectedLevel.title);
+
+const heroBeams = {
+  piccoloCape: 'Makankosappo', piccolo: 'Makankosappo', piccoloNail: 'Makankosappo', krillin: 'Kienzan',
+  kidGohan: 'Masenko', teenGohan: 'Masenko', adultGohan: 'Masenko', ultimateGohan: 'Masenko',
+  trunks: 'Ataque Ardente', vegeta: 'Galick Ho', majinVegeta: 'Explosão Final',
+  gotenks: 'Canhão da Vitória', vegito: 'Big Bang Kamehameha', tien: 'Kikoho',
+  yamcha: 'Sokidan', videl: 'Rajada', goten: 'Kamehameha',
+};
+const initialForms = { piccoloNail: 'Fusão com Nail', ultimateGohan: 'Gohan Supremo', majinVegeta: 'Forma Majin' };
+const potentialPowers = new Set(['krillinPotential', 'kidPotential']);
+const beamButton = document.querySelector('[data-action="beam"]');
+const techniqueColors = {
+  Makankosappo: ['#ffe6a1', '#a353df', '#ffd957', '#fff8d5'],
+  Masenko: ['#fce8a6', '#e6a32e', '#ffe46a', '#fffbe4'],
+  Kienzan: ['#ffe29a', '#ea901a', '#ffe23e', '#fffbe4'],
+  'Galick Ho': ['#e4b3ff', '#9b40cf', '#d485ff', '#fff0ff'],
+  'Explosão Final': ['#fff09d', '#df9220', '#ffe35a', '#fffde1'],
+};
+
+function selectHero(id) {
+  hero = id;
+  heroHealthName.textContent = heroNames[id] + ' · Vida';
+  defeat.textContent = heroNames[id] + ' foi derrotado. Atualize a página para tentar de novo.';
+  const technique = heroBeams[id] ?? 'Kamehameha';
+  beamButton.title = technique;
+  beamButton.setAttribute('aria-label', technique + ' (custa 40 de ki)');
+}
+
+selectHero(hero);
 
 const cutscene = document.querySelector('#cutscene');
 const sceneDialogue = document.querySelector('#scene-dialogue');
@@ -66,6 +108,21 @@ const transformDuration = 1.1;
 const superDrain = 8;
 const superSpeed = 1.25;
 const superDamage = 1.5;
+const defaultPowerStats = { speed: superSpeed, damage: superDamage, drain: superDrain };
+const powerStats = {
+  kaioken: { speed: 1.38, damage: 1.35, drain: 12 },
+  gokuFull: { speed: 1.28, damage: 1.58, drain: 6 },
+  teenFull: { speed: 1.28, damage: 1.58, drain: 6 },
+  gokuSsj2: { speed: 1.35, damage: 1.7, drain: 10 },
+  teenSsj2: { speed: 1.35, damage: 1.72, drain: 10 },
+  vegetaSsj2: { speed: 1.35, damage: 1.7, drain: 10 },
+  gokuSsj3: { speed: 1.42, damage: 1.95, drain: 15 },
+  gotenksSsj3: { speed: 1.4, damage: 1.85, drain: 15 },
+  vegetaGrade2: { speed: 1.06, damage: 1.8, drain: 11 },
+  trunksGrade2: { speed: 1.06, damage: 1.8, drain: 11 },
+  trunksGrade3: { speed: 0.84, damage: 2.15, drain: 14 },
+  superVegito: { speed: 1.45, damage: 1.95, drain: 10 },
+};
 const world = { width: 4200, ceiling: 1250, center: 2100 };
 const camera = { left: 0, lift: 0 };
 const flightKiMinimum = 10;
@@ -241,7 +298,7 @@ function showNotice(message) {
 }
 
 function flightRestriction() {
-  if (playerCombat.health <= criticalHealth) return 'Goku está ferido demais para voar.';
+  if (playerCombat.health <= criticalHealth) return heroNames[hero] + ' está ferido demais para voar.';
   if (ki < flightKiMinimum) return 'Carregue pelo menos 10% de ki para voar.';
   return '';
 }
@@ -273,7 +330,9 @@ function press(input, action) {
   heldInputs.set(input, action);
   if (itemAction || transforming !== null) return;
   if (action === 'transform') {
-    if (canTransform()) {
+    const available = nextPower();
+    if (available) {
+      pendingPower = available;
       transforming = 0;
       transformButton.hidden = true;
       lastJumpPress = -Infinity;
@@ -289,7 +348,7 @@ function press(input, action) {
   }
   if (superSaiyan && action === 'charge') {
     heldInputs.delete(input);
-    showNotice('O ki diminui enquanto Goku está em Super Saiyajin.');
+    showNotice('O ki diminui enquanto a forma especial está ativa.');
     return;
   }
   if (action === 'beam' || action === 'blast') {
@@ -312,7 +371,7 @@ function press(input, action) {
 function tryKiAttack(action) {
   const isBeam = action === 'beam';
   if (playerCombat.reaction) {
-    showNotice('Espere o Goku se recuperar para disparar.');
+    showNotice('Espere ' + heroNames[hero] + ' se recuperar para disparar.');
     return;
   }
   if (beam || attack) {
@@ -320,13 +379,16 @@ function tryKiAttack(action) {
     return;
   }
   if (ki < (isBeam ? beamCost : blastCost)) {
-    showNotice(isBeam ? 'O Kamehameha custa 40% de ki.' : 'A esfera custa 10% de ki.');
+    showNotice(isBeam ? beamButton.title + ' custa 40% de ki.' : 'A esfera custa 10% de ki.');
     return;
   }
   combatNotice.hidden = true;
   noticeTime = 0;
   if (isBeam) {
-    beam = { direction: facing, elapsed: -beamChargeDuration, damage: attackDamage(75), targets: new WeakSet() };
+    beam = {
+      direction: facing, elapsed: -beamChargeDuration, damage: attackDamage(75),
+      targets: new WeakSet(), disc: hero === 'krillin', colors: techniqueColors[beamButton.title],
+    };
     addKi(-beamCost);
     lastJumpPress = -Infinity;
   } else {
@@ -422,16 +484,29 @@ function addKi(amount) {
     kiValue.textContent = meter.value + '%';
   }
   ki = next;
-  if (ki === 0) superSaiyan = false;
+  if (ki === 0) {
+    superSaiyan = false;
+    currentPower = null;
+  }
   enforceFlightRestriction();
 }
 
-function canTransform() {
-  return training && ki === 100 && !superSaiyan && canUseItem();
+function nextPower() {
+  if (!canUseItem() || ki < (currentPower ? 55 : 100)) return null;
+  const powers = training ? [trainingPower] : selectedLevel?.powers ?? [];
+  const available = powers.filter((entry) => powerUsers[entry.sprite] === hero);
+  const next = available[available.indexOf(currentPower) + 1];
+  const round = bossLevel ? encounterIndex : wave.index;
+  if (!next || round < next.round || (round === next.round && (boss?.phase ?? 0) < next.phase)) return null;
+  return next;
 }
 
 function attackDamage(baseDamage) {
-  return Math.round(baseDamage * (superSaiyan ? superDamage : 1));
+  return Math.round(baseDamage * (superSaiyan ? activePowerStats().damage : 1));
+}
+
+function activePowerStats() {
+  return powerStats[currentPower?.sprite] ?? defaultPowerStats;
 }
 
 function updateHealthMeter() {
@@ -540,7 +615,7 @@ function damage(target, amount, direction, altitude) {
     enforceFlightRestriction();
   } else {
     target.meter.value = target.health;
-    if (target.boss) bossHealthValue.textContent = target.health + '/' + bossHealth.max;
+    if (target.boss) updateBossHealthBar(target);
     if (target.boss && target.health && (target.attackTime !== null || target.staggerCooldown > 0)) {
       return;
     }
@@ -572,7 +647,7 @@ function resolveAttack(name, size) {
     if (!enemy.health || dx * facing < 0 ||
         !inRange(dx, enemy.altitude - airborneHeight, facing, isKick ? 106 : 88, size)) continue;
     hitEnemy(enemy, attackDamage(isKick ? 30 : 20), facing);
-    if (!enemy.health) addKi(20);
+    if (!enemy.health && enemy.transition == null) addKi(20);
   }
 }
 
@@ -582,6 +657,10 @@ function hitEnemy(enemy, amount, direction) {
   if (enemy.boss && enemy.health && enemy.reaction === previousReaction) return;
   enemy.attackTime = null;
   enemy.cooldown = enemy.boss ? 0.18 : 0.4;
+  if (enemy.boss && !enemy.health && enemy.phase + 1 < enemy.encounter.forms.length) {
+    enemy.reaction = null;
+    enemy.transition = 0;
+  }
 }
 
 function hurtPlayer(amount, direction) {
@@ -596,6 +675,7 @@ function hurtPlayer(amount, direction) {
   blasts.length = 0;
   beam = null;
   superSaiyan = false;
+  currentPower = null;
   itemAction = null;
   combatNotice.hidden = true;
   resetInputs();
@@ -664,12 +744,14 @@ function drawBlast(blast, floor, size) {
 function applyBeam(width, size) {
   const origin = beamOrigin(width, size);
   const range = Math.abs(origin.end - origin.x);
+  const discTravel = beam.elapsed * 620;
   for (const enemy of enemies) {
     const ahead = (enemy.x - origin.x) * beam.direction;
     const altitude = origin.altitude - enemy.altitude;
     if (!enemy.health || beam.targets.has(enemy) || (enemy.x - x) * beam.direction < 0 ||
         ahead < -32 * size || ahead > range ||
         altitude < -5 * size || altitude > 125 * size) continue;
+    if (beam.disc && Math.abs(ahead - discTravel) > 32 * size + 16) continue;
     beam.targets.add(enemy);
     hitEnemy(enemy, beam.damage, beam.direction);
   }
@@ -690,9 +772,21 @@ function drawBeam(width, floor, size) {
   const y = floor - origin.altitude;
   const fade = Math.min(1, (beamDuration - beam.elapsed) / 0.22);
   const radius = (17 + 2 * Math.sin(beam.elapsed * 48)) * size * fade;
-  for (const [scale, color] of [[1.35, '#b0eaff'], [1, '#138bff'], [0.67, '#75dcff'], [0.36, '#faffff']]) {
+  const colors = beam.colors ?? ['#b0eaff', '#138bff', '#75dcff', '#faffff'];
+  if (beam.disc) {
+    const px = origin.x + beam.direction * beam.elapsed * 620;
+    if ((px - origin.end) * beam.direction > 30 * size) return;
+    for (const [index, scale] of [1, 0.82, 0.56].entries()) {
+      context.fillStyle = colors[index + 1];
+      context.beginPath();
+      context.ellipse(px, y, radius * 1.4 * scale, radius * 0.32 * scale, -0.14, 0, Math.PI * 2);
+      context.fill();
+    }
+    return;
+  }
+  for (const [index, scale] of [1.35, 1, 0.67, 0.36].entries()) {
     const band = radius * scale;
-    context.fillStyle = color;
+    context.fillStyle = colors[index];
     context.fillRect(origin.x, y - band, origin.end - origin.x, band * 2);
     context.beginPath();
     context.arc(origin.x, y, band, 0, Math.PI * 2);
@@ -732,17 +826,18 @@ function drawBeamCharge(floor, size) {
   }
 }
 
-function drawSuperAura(floor, size, time, burst) {
+function drawSuperAura(floor, size, time, burst, red) {
   const ground = floor - airborneHeight;
   const spread = burst ? 1.5 : 1;
   const glow = context.createRadialGradient(x, ground - 70 * size, 6 * size,
     x, ground - 70 * size, 100 * size * spread);
-  glow.addColorStop(0, burst ? 'rgba(255, 218, 73, .72)' : 'rgba(255, 218, 73, .32)');
-  glow.addColorStop(1, 'rgba(255, 218, 73, 0)');
+  const color = red ? '255, 78, 79' : '255, 218, 73';
+  glow.addColorStop(0, 'rgba(' + color + ', ' + (burst ? '.72' : '.32') + ')');
+  glow.addColorStop(1, 'rgba(' + color + ', 0)');
   context.fillStyle = glow;
   context.fillRect(x - 100 * size * spread, ground - 170 * size * spread,
     200 * size * spread, 190 * size * spread);
-  context.fillStyle = burst ? '#ffd13b' : '#ffe482';
+  context.fillStyle = red ? '#ff7279' : burst ? '#ffd13b' : '#ffe482';
   for (let index = 0; index < 15; index++) {
     const rise = (time * 2.6 + index / 15) % 1;
     const side = index % 2 ? 1 : -1;
@@ -839,35 +934,85 @@ function updateBossBattle(dt, width, size) {
   if (!playerCombat.health || exit.unlocked) return;
   if (boss) {
     if (boss.gone) {
-      exit.unlocked = true;
       bossHud.hidden = true;
       for (let index = blasts.length - 1; index >= 0; index--) {
         if (blasts[index].hostile) blasts.splice(index, 1);
+      }
+      if (encounterIndex + 1 === encounters.length) {
+        exit.unlocked = true;
+      } else {
+        encounterIndex++;
+        boss = null;
+        bossIntro = 1.2;
       }
     }
     return;
   }
   bossIntro -= dt;
   if (bossIntro > 0) return;
+  const encounter = encounters[encounterIndex];
   boss = {
-    boss: true, meter: bossHealth, health: bossHealth.max,
+    boss: true, meter: bossHealth, encounter, phase: 0, transition: null,
     x: boundedX(raditzEntranceX ?? camera.left + width - 70 * size, world.width, 64 * size),
     altitude: 0, facing: -1, reaction: null, gone: false,
     attackTime: null, cooldown: 0.55, staggerCooldown: 0, moves: 0, attackName: null,
   };
   boss.facing = boss.x > x ? -1 : 1;
-  bossHealthValue.textContent = boss.health + '/' + bossHealth.max;
+  setBossForm(boss);
   bossHud.hidden = false;
   enemies.push(boss);
 }
 
-function updateRaditz(enemy, dt, size) {
-  const poses = sprites.raditz;
+function setBossForm(enemy) {
+  enemy.form = enemy.encounter.forms[enemy.phase];
+  const nextHero = enemy.form.hero ?? enemy.encounter.hero ?? selectedLevel.hero;
+  if (nextHero !== hero) {
+    selectHero(nextHero);
+    currentPower = null;
+    superSaiyan = false;
+    playerCombat.health = gokuHealth.max;
+    playerCombat.reaction = null;
+    updateHealthMeter();
+  }
+  enemy.health = enemy.form.health;
+  bossHealth.max = enemy.health;
+  bossName.textContent = enemy.encounter.name + (enemy.form.name ? ' · ' + enemy.form.name : '');
+  if (enemy.phase === 0) {
+    const colors = ['#e66c74', '#efae57', '#b693f1', '#58c5dd', '#87d58c'];
+    bossSegments.replaceChildren(...enemy.encounter.forms.map((_, index) => {
+      const segment = document.createElement('span');
+      segment.style.setProperty('--segment', colors[index % colors.length]);
+      segment.append(document.createElement('i'));
+      return segment;
+    }));
+    bossSegments.hidden = enemy.encounter.forms.length <= 1;
+    bossHealth.classList.toggle('segmented', !bossSegments.hidden);
+  }
+  updateBossHealthBar(enemy);
+}
+
+function updateBossHealthBar(enemy) {
+  bossHealth.value = enemy.health;
+  bossHealthValue.textContent = enemy.health + '/' + bossHealth.max;
+  for (let index = 0; index < bossSegments.children.length; index++) {
+    const fraction = index < enemy.phase ? 0 : index > enemy.phase ? 1 : enemy.health / bossHealth.max;
+    bossSegments.children[index].firstElementChild.style.width = fraction * 100 + '%';
+  }
+}
+
+function bossPoses(enemy) {
+  return enemy.form.sprite === 'raditz' ? sprites.raditz : roster.get(enemy.form.sprite).boss;
+}
+
+function updateBoss(enemy, dt, size) {
+  const poses = bossPoses(enemy);
   if (!playerCombat.health) {
     enemy.attackTime = null;
     return poses[0];
   }
   const enraged = enemy.health <= bossHealth.max / 2;
+  const style = enemy.form.style;
+  const phaseStrength = 1 + enemy.phase * 0.1;
   const dx = x - enemy.x;
   const dy = airborneHeight - enemy.altitude;
   if (enemy.attackTime !== null) {
@@ -882,25 +1027,26 @@ function updateRaditz(enemy, dt, size) {
         blasts.push({
           hostile: true, x: source, altitude: enemy.altitude + 100 * size, direction: enemy.facing,
           verticalSpeed: Math.max(-260, Math.min(260, (dy - 14 * size) / travel)),
-          damage: move.damage, life: 2,
+          damage: Math.round(move.damage * phaseStrength), life: 2,
         });
-      } else if (inRange(dx, dy, enemy.facing, move.reach, size)) {
-        hurtPlayer(move.damage, enemy.facing);
+      } else if (inRange(dx, dy, enemy.facing, move.reach * (style === 'brute' ? 1.15 : 1), size)) {
+        hurtPlayer(Math.round((move.damage + (style === 'brute' ? 3 : 0)) * phaseStrength), enemy.facing);
       }
     }
     if (enemy.attackTime < windup) return poses[move.start];
     if (enemy.attackTime < windup + 0.19) return poses[move.strike];
     if (enemy.attackTime < windup + 0.58) return poses[5];
     enemy.attackTime = null;
-    enemy.cooldown = enraged ? 0.54 : 0.95;
+    enemy.cooldown = (enraged ? 0.54 : 0.95) * (style === 'swift' ? 0.8 : 1);
   }
 
   enemy.cooldown = Math.max(0, enemy.cooldown - dt);
   if (Math.abs(dx) > 2) enemy.facing = Math.sign(dx);
   if (!enemy.cooldown) {
     if (inRange(dx, dy, enemy.facing, 80, size)) {
-      enemy.attackName = enemy.moves % 2 ? 'kick' : 'punch';
-    } else if (Math.abs(dx) >= 130 * size && Math.abs(dx) <= 360 * size && Math.abs(dy) < 135 * size) {
+      enemy.attackName = style === 'brute' || enemy.moves % 2 ? 'kick' : 'punch';
+    } else if (Math.abs(dx) >= 130 * size && Math.abs(dx) <= (style === 'ranged' ? 450 : 360) * size &&
+        Math.abs(dy) < 135 * size) {
       enemy.attackName = 'blast';
     } else {
       enemy.attackName = null;
@@ -909,13 +1055,15 @@ function updateRaditz(enemy, dt, size) {
       enemy.attackTime = 0;
       enemy.moves++;
       const move = raditzAttacks[enemy.attackName];
-      enemy.windup = move.windup * (enraged ? 0.78 : 1);
+      enemy.windup = move.windup * (enraged ? 0.78 : 1) * (style === 'swift' ? 0.85 : 1)
+        / (1 + enemy.phase * 0.04);
       return poses[move.start];
     }
   }
 
   const gap = Math.max(0, Math.abs(dx) - 61 * size);
-  const speed = enraged ? 235 : 190;
+  const speed = ((enraged ? 235 : 190) + (style === 'swift' ? 53 : style === 'brute' ? -20 : 0))
+    * phaseStrength;
   enemy.x += Math.sign(dx) * Math.min(gap, speed * dt);
   enemy.altitude += Math.sign(dy) * Math.min(Math.abs(dy), speed * dt);
   if (enemy.altitude > 24 * size) return poses[gap > 4 || Math.abs(dy) > 8 ? 2 : 9];
@@ -938,16 +1086,27 @@ function spawnEnemy(plan, side, width, height, size) {
 function updateEnemy(enemy, dt, width, height, size) {
   enemy.x = boundedX(enemy.x, width, 52 * size);
   if (enemy.boss) enemy.staggerCooldown = Math.max(0, enemy.staggerCooldown - dt);
+  if (enemy.boss && enemy.transition !== null) {
+    enemy.transition += dt;
+    if (enemy.transition >= 0.9) {
+      enemy.phase++;
+      enemy.transition = null;
+      enemy.cooldown = 0.45;
+      setBossForm(enemy);
+    }
+    return bossPoses(enemy)[9];
+  }
   if (enemy.reaction) {
     const result = react(enemy, dt, height, (dx) => {
       enemy.x = boundedX(enemy.x + dx, width, 52 * size);
     });
     enemy.altitude = result.altitude;
     enemy.gone = result.finished;
-    const frames = enemy.boss ? sprites.raditzHit : sprites.enemyHit;
+    const frames = enemy.boss ? enemy.form.sprite === 'raditz' ? sprites.raditzHit
+      : roster.get(enemy.form.sprite).hit : sprites.enemyHit;
     return result.visible ? frames[result.frameIndex] : null;
   }
-  if (enemy.boss) return updateRaditz(enemy, dt, size);
+  if (enemy.boss) return updateBoss(enemy, dt, size);
 
   const dx = x - enemy.x;
   const dy = airborneHeight - enemy.altitude;
@@ -1039,7 +1198,7 @@ function update(dt, width, height, size) {
       airborneHeight = Math.min(height * 0.18, airborneHeight + height * dt * 0.8);
       if (airborneHeight >= height * 0.18) liftingOff = false;
     }
-    const speed = superSaiyan ? superSpeed : 1;
+    const speed = superSaiyan ? activePowerStats().speed : 1;
     airborneHeight = Math.max(height * 0.035, Math.min(world.ceiling,
       airborneHeight - vertical * height * dt * verticalFlightSpeed * speed));
     x += direction * flightSpeed * dt * speed;
@@ -1076,7 +1235,7 @@ function update(dt, width, height, size) {
   } else {
     if (!flying && direction) {
       facing = Math.sign(direction);
-      x += direction * walkSpeed * dt * (superSaiyan ? superSpeed : 1);
+      x += direction * walkSpeed * dt * (superSaiyan ? activePowerStats().speed : 1);
     }
     if (flying) {
       next = direction || vertical ? 'fly' : 'hover';
@@ -1105,8 +1264,15 @@ function update(dt, width, height, size) {
 }
 
 function drawLandscape(width, height, groundLine) {
-  const topColor = namek ? [67, 175, 146] : training ? [117, 190, 198] : [77, 164, 237];
-  const bottomColor = namek ? [174, 230, 184] : training ? [212, 232, 181] : [177, 218, 244];
+  const skies = {
+    namek: [[67, 175, 146], [174, 230, 184]],
+    kaio: [[239, 126, 183], [255, 215, 158]],
+    ruins: [[49, 22, 107], [206, 103, 177]],
+    'time-chamber': [[251, 240, 221], [243, 214, 231]],
+    training: [[117, 190, 198], [212, 232, 181]],
+  };
+  const [topColor, bottomColor] = skies[training ? 'training' : selectedLevel.environment] ??
+    [[77, 164, 237], [177, 218, 244]];
   const sky = context.createLinearGradient(0, 0, 0, height);
   sky.addColorStop(0, 'rgb(' + topColor.join(', ') + ')');
   sky.addColorStop(1, 'rgb(' + bottomColor.join(', ') + ')');
@@ -1150,19 +1316,24 @@ function drawGround(width, height, floor) {
   if (floor >= height) return;
   const left = camera.left;
   const right = left + width;
-  context.fillStyle = '#64513b';
+  const environment = selectedLevel?.environment;
+  const stone = environment === 'canyon' || environment === 'ruins';
+  const tiles = environment === 'cell-ring' || environment === 'tournament' || environment === 'time-chamber';
+  context.fillStyle = environment === 'ruins' ? '#533d59' : tiles ? '#655f70' : '#64513b';
   context.fillRect(left, floor, width, height - floor);
-  context.fillStyle = '#8b7149';
+  context.fillStyle = tiles ? '#a6a1ae' : stone ? '#98715e' : '#8b7149';
   context.fillRect(left, floor + 7, width, 24);
-  context.fillStyle = '#6d8b36';
+  context.fillStyle = tiles ? '#cbc4c9' : stone ? '#b78866' : '#6d8b36';
   context.fillRect(left, floor, width, 8);
-  context.fillStyle = '#acb951';
+  context.fillStyle = tiles ? '#eee6d8' : stone ? '#deaf80' : '#acb951';
   context.fillRect(left, floor, width, 3);
   for (let tile = Math.floor(left / 29) * 29; tile < right; tile += 29) {
-    context.fillStyle = '#809b42';
-    context.fillRect(tile + 4, floor - (tile % 7), 3, 8);
-    context.fillRect(tile + 8, floor - 3, 3, 7);
-    context.fillStyle = '#756043';
+    if (!stone && !tiles) {
+      context.fillStyle = '#809b42';
+      context.fillRect(tile + 4, floor - (tile % 7), 3, 8);
+      context.fillRect(tile + 8, floor - 3, 3, 7);
+    }
+    context.fillStyle = tiles ? '#8d8596' : '#756043';
     context.fillRect(tile, floor + 12 + tile % 17, 14, 4);
     context.fillStyle = '#514635';
     context.fillRect(tile + 8, floor + 42 + tile % 33, 17, 6);
@@ -1264,16 +1435,18 @@ function updateStageStatus() {
   if (!namek && nearExit()) completeStage('Fase concluída');
   const label = 'Onda ' + (wave.index + 1) + '/' + waves.length;
   let text = label;
-  if (!raditzLevel) {
+  if (!bossLevel) {
     if (wave.resting) text += ' · Intervalo';
     else if (training && wave.index === 2) text += ' · Voe para combater';
     else if (!wave.spawned) text += ' · Prepare-se';
   } else {
-    text = !boss ? 'Raditz se aproxima' : boss.health <= bossHealth.max / 2 && boss.health > 0
-      ? 'Raditz intensificou os ataques' : '';
+    text = !boss ? encounters[encounterIndex]?.name + ' se aproxima' : boss.transition !== null
+      ? boss.encounter.name + ' está mudando de forma'
+      : boss.health <= bossHealth.max / 2 && boss.health > 0
+        ? boss.encounter.name + ' intensificou os ataques' : '';
   }
   if (exit.unlocked) text = namek ? 'Esferas liberadas · Siga à direita'
-    : training ? 'Saída liberada · Siga à direita' : 'Raditz derrotado · Siga à direita';
+    : training ? 'Saída liberada · Siga à direita' : boss.encounter.name + ' derrotado · Siga à direita';
   waveStatus.hidden = !text || exit.reached || !playerCombat.health;
   if (waveStatus.textContent !== text) waveStatus.textContent = text;
 }
@@ -1360,9 +1533,11 @@ function render(time) {
     if (transforming >= transformDuration) {
       transforming = null;
       superSaiyan = true;
+      currentPower = pendingPower;
+      pendingPower = null;
     }
   } else if (superSaiyan) {
-    addKi(-superDrain * dt);
+    addKi(-activePowerStats().drain * dt);
   }
   if (beam) {
     beam.elapsed += dt;
@@ -1378,19 +1553,34 @@ function render(time) {
   camera.left = Math.round(Math.max(0, Math.min(Math.max(0, world.width - width), x - width / 2)));
   camera.lift = Math.round(Math.max(0, airborneHeight - height * 0.21));
   const floor = groundLine + camera.lift;
-  const transformedVisual = superSaiyan || (transforming !== null && transforming >= 0.7);
-  const playerFrame = normalFrame && transformedVisual ? superPose(normalFrame) : normalFrame;
+  const visualPower = transforming !== null && transforming >= 0.7 ? pendingPower : currentPower;
+  const playerFrame = normalFrame && campaignPlayerPose(normalFrame, visualPower);
   const focusing = beam?.elapsed < 0 || transforming !== null;
   game.classList.toggle('beam-focus', focusing);
   if (!focusing) {
     updateSeed(dt, groundLine, size);
     updateBlasts(dt, world.width, size);
-    if (raditzLevel) updateBossBattle(dt, width, size);
+    if (bossLevel) updateBossBattle(dt, width, size);
     else updateWaves(dt, width, height, size);
     if (beam) applyBeam(width, size);
   }
   updateStageStatus();
-  transformButton.hidden = !canTransform();
+  const ability = nextPower();
+  transformButton.hidden = !ability;
+  if (ability && transformButton.title !== ability.name) {
+    transformButton.title = ability.name;
+    const rank = ability.name.match(/grau [23]/i);
+    transformButton.textContent = rank ? rank[0]
+      : ability.name.endsWith('dominado') ? 'SSJ'
+        : potentialPowers.has(ability.sprite) ? 'Poder'
+      : ability.sprite === 'kaioken' ? 'Kaioken'
+      : ability.sprite === 'piccoloKami' ? 'Fusão'
+        : ability.name === 'Super Vegetto' ? 'Super' : ability.name.replace('Super Saiyajin', 'SSJ');
+    transformButton.setAttribute('aria-label', 'Ativar ' + ability.name);
+  }
+  const formName = currentPower?.name ?? initialForms[hero];
+  heroForm.hidden = !formName;
+  if (formName && heroForm.textContent !== formName) heroForm.textContent = formName;
 
   context.setTransform(density, 0, 0, density, 0, 0);
   context.imageSmoothingEnabled = false;
@@ -1413,6 +1603,13 @@ function render(time) {
       enemy.meter.style.transform = 'translate(' + Math.round(enemy.x - camera.left) + 'px, ' + Math.round(barY) + 'px) translateX(-50%)';
     }
     drawFighter(frame, enemy.x, baseline, enemy.facing, size);
+    if (enemy.boss && enemy.transition !== null) {
+      context.strokeStyle = '#e4aeff';
+      context.lineWidth = 3;
+      context.beginPath();
+      context.arc(enemy.x, baseline - 77 * size, (26 + enemy.transition * 68) * size, 0, Math.PI * 2);
+      context.stroke();
+    }
     if (enemy.boss && !enemy.reaction && enemy.attackName === 'blast' &&
         enemy.attackTime !== null && enemy.attackTime < enemy.windup) {
       const radius = (3 + 10 * enemy.attackTime / enemy.windup) * size;
@@ -1431,7 +1628,10 @@ function render(time) {
     context.fillStyle = 'rgba(22, 16, 36, ' + Math.min(0.55, transforming) + ')';
     context.fillRect(camera.left, 0, width, height);
   }
-  if (transforming !== null || superSaiyan) drawSuperAura(floor, size, time / 1000, transformedVisual && transforming !== null);
+  if (transforming !== null || superSaiyan) {
+    drawSuperAura(floor, size, time / 1000, Boolean(visualPower && transforming !== null),
+      (visualPower ?? pendingPower)?.sprite === 'kaioken');
+  }
   if (playerFrame) drawFighter(playerFrame, x, floor - airborneHeight, facing, size, flightAngle);
   if (itemAction?.type === 'pickup' && animation === 'pickup' && itemAction.elapsed >= 0.23) {
     const hover = Math.sin(itemAction.elapsed * 10) * 4 * size;
@@ -1442,12 +1642,14 @@ function render(time) {
   else if (beam) drawBeam(width, floor, size);
 }
 
-function drawFighter({ frame, scale }, position, baseline, direction, size, angle = 0) {
-  const spriteWidth = frame.width * scale * size;
+function drawFighter({ frame, scale, lean = 0, stretch = 1, rise = 0, shift = 0 },
+  position, baseline, direction, size, angle = 0) {
+  const spriteWidth = frame.width * scale * size * stretch;
   const spriteHeight = frame.height * scale * size;
   context.save();
-  context.translate(Math.round(position), Math.round(baseline));
+  context.translate(Math.round(position + shift * direction * size), Math.round(baseline - rise * size));
   context.scale(direction, 1);
+  angle += lean;
   if (angle) {
     context.translate(0, -spriteHeight * 0.48);
     context.rotate(angle);
@@ -1456,6 +1658,142 @@ function drawFighter({ frame, scale }, position, baseline, direction, size, angl
   context.drawImage(frame, Math.round(-spriteWidth / 2), Math.round(-spriteHeight),
     Math.round(spriteWidth), Math.round(spriteHeight));
   context.restore();
+}
+
+function deriveFighterPoses(frame, height) {
+  const base = { frame, scale: height / frame.height };
+  const walk = { ...base, lean: 0.08, rise: 4, shift: 4 };
+  const fly = { ...base, lean: 1.04, rise: -14 };
+  const wind = { ...base, lean: -0.15, shift: -9 };
+  const punch = { ...base, lean: 0.32, stretch: 1.1, shift: 13 };
+  const kick = { ...base, lean: 0.54, stretch: 1.12, shift: 12 };
+  const channel = { ...base, lean: -0.1, stretch: 1.04, rise: 2 };
+  const release = { ...base, lean: 0.16, stretch: 1.08, shift: 8 };
+  const hover = { ...base, rise: 7 };
+  const recoil = { ...base, lean: -0.28, shift: -9 };
+  const falling = { ...base, lean: -0.65, rise: 7 };
+  const down = { ...base, lean: -Math.PI / 2, rise: -height * 0.25 };
+  return {
+    boss: [base, walk, fly, wind, punch, base, kick, channel, release, hover],
+    hit: [recoil, falling, falling, down, down],
+  };
+}
+
+function campaignPlayerPose(normalFrame, visualPower) {
+  if (hero === 'goku' && (!visualPower || visualPower.sprite === 'kaioken')) return normalFrame;
+  if (hero === 'goku' && visualPower.sprite === 'gokuSsj') return superPose(normalFrame);
+  const id = potentialPowers.has(visualPower?.sprite) ? hero : visualPower?.sprite ?? hero;
+  const { player } = roster.get(id);
+  const poses = player.boss;
+  if (animation === 'hurt' || animation === 'defeated') {
+    const time = playerCombat.reaction?.time ?? 0;
+    return player.hit[animation === 'hurt' ? Number(time > 0.16) : Math.min(4, Math.floor(time / 0.21))];
+  }
+  if (animation === 'walk') return poses[Math.floor(animationTime * 12) % 2];
+  if (animation === 'fly') return poses[2];
+  if (animation === 'jump' || animation === 'hover') return poses[9];
+  if (animation === 'punch' || animation === 'kick' || animation === 'blast') {
+    if (attack?.elapsed < attackFrameTime * 2) return poses[3];
+    return poses[animation === 'kick' ? 6 : animation === 'blast' ? 8 : 4];
+  }
+  if (animation === 'beam') return poses[8];
+  if (animation === 'beamCharge' || animation === 'charge' || animation === 'transform' || animation === 'eat') return poses[7];
+  if (animation === 'pickup') return poses[itemAction?.elapsed < 0.23 ? 3 : 9];
+  if (animation === 'lookUp' || animation === 'lookDown') return poses[animation === 'lookUp' ? 3 : 1];
+  return poses[0];
+}
+
+async function loadRoster() {
+  const needed = new Set([hero, ...encounters.flatMap((encounter) =>
+    [selectedLevel?.hero, encounter.hero, ...encounter.forms.flatMap((phase) => [phase.sprite, phase.hero])]),
+  ...(selectedLevel?.powers ?? []).map((entry) => entry.sprite)]);
+  const sheets = rosterSheets.filter(([, ids]) => ids.some((id) => needed.has(id)));
+  const images = await Promise.all(sheets.map(([path]) => loadImage(path)));
+  const small = new Set(['kaio', 'saibaman', 'guldo', 'cellJr', 'kidGohan', 'krillin', 'goten', 'trunksKid']);
+  const tall = new Set(['greatApe', 'gohanApe', 'nappa', 'recoome', 'freeza2', 'buuBuff', 'superBuu']);
+  for (let sheet = 0; sheet < images.length; sheet++) {
+    const image = images[sheet];
+    const ids = sheets[sheet][1];
+    const rows = ids.length / 4;
+    const columns = Array.from({ length: 5 }, (_, index) => Math.round(image.width * index / 4));
+    for (let row = 0; row < rows; row++) {
+      const rowIds = ids.slice(row * 4, row * 4 + 4);
+      if (!rowIds.some((id) => needed.has(id) && !roster.has(id))) continue;
+      const poses = readRow(image, columns, Math.round(image.height * row / rows),
+        Math.round(image.height * (row + 1) / rows), 1, true);
+      rowIds.forEach((id, column) => {
+        if (!needed.has(id) || roster.has(id)) return;
+        const { frame } = poses[column];
+        const boss = deriveFighterPoses(frame, small.has(id) ? 118 : tall.has(id) ? 203 : 170);
+        roster.set(id, { boss: boss.boss, hit: boss.hit,
+          player: deriveFighterPoses(frame, small.has(id) ? 116 : 142) });
+      });
+    }
+  }
+  await loadFightMotion();
+}
+
+async function loadFightMotion() {
+  const frieza = selectedLevel?.id === 'freeza';
+  const heroes = ['piccolo', 'krillin', 'kidGohan'];
+  const [friezaArt, heroArt] = await Promise.all([
+    frieza ? loadImage('assets/freeza-motion.png') : null,
+    heroes.some((id) => roster.has(id)) ? loadImage('assets/hero-motion.png') : null,
+  ]);
+  if (friezaArt) {
+    const columns = [
+      [0, 230, 555, 840, 1122], [0, 226, 541, 843, 1122], [0, 220, 538, 835, 1122],
+      [0, 220, 522, 825, 1122], [0, 218, 521, 839, 1122],
+    ];
+    const edges = [0, 274, 583, 842, 1098, 1402];
+    ['freeza1', 'freeza2', 'freeza3', 'freeza4', 'freeza100'].forEach((id, row) => {
+      const [idle, flight, strike, release] = readRow(friezaArt, columns[row], edges[row], edges[row + 1], 1, true);
+      const entry = roster.get(id);
+      const height = entry.boss[0].frame.height * entry.boss[0].scale;
+      const scale = height / idle.frame.height;
+      for (const pose of [idle, flight, strike, release]) pose.scale = scale;
+      const movement = deriveFighterPoses(idle.frame, height);
+      entry.boss = movement.boss;
+      entry.hit = movement.hit;
+      entry.boss[2] = { ...flight, rise: height * 0.14 };
+      entry.boss[4] = strike;
+      entry.boss[6] = strike;
+      entry.boss[7] = { ...release, lean: -0.08, shift: -6 };
+      entry.boss[8] = release;
+    });
+  }
+  if (heroArt) {
+    const columns = [0, 281, 640, 999, 1287, 1619];
+    heroes.forEach((id, row) => {
+      if (!roster.has(id)) return;
+      const motions = readRow(heroArt, columns, Math.round(heroArt.height * row / 3),
+        Math.round(heroArt.height * (row + 1) / 3), 1, true);
+      const entry = roster.get(id).player;
+      const height = entry.boss[0].frame.height * entry.boss[0].scale;
+      const scale = height / Math.max(motions[0].frame.height, motions[2].frame.height, motions[4].frame.height);
+      for (const [index, pose] of motions.entries()) {
+        const slot = [1, 2, 4, 6, 8][index];
+        entry.boss[slot] = { ...pose, scale, rise: index === 1 ? height * 0.12 : 0 };
+      }
+    });
+  }
+}
+
+async function loadBackdrop() {
+  if (training) return loadImage('assets/martial-arena.png');
+  const location = selectedLevel.environment;
+  if (location === 'raditz-field') return loadImage('assets/raditz-field.png');
+  if (location === 'namek') return loadImage('assets/namek.png');
+  if (location === 'time-chamber') return loadImage('assets/time-chamber.png');
+  const [asset, scenes] = backdropAtlases.find(([, entries]) => entries.includes(location));
+  const image = await loadImage(asset);
+  const panel = document.createElement('canvas');
+  panel.width = image.width;
+  panel.height = Math.floor(image.height / scenes.length);
+  const top = Math.round(image.height * scenes.indexOf(location) / scenes.length);
+  panel.getContext('2d').drawImage(image, 0, top, panel.width, panel.height,
+    0, 0, panel.width, panel.height);
+  return panel;
 }
 
 function lookPose({ frame, scale }, angle, neckX, neckY) {
@@ -1509,10 +1847,12 @@ async function start() {
       loadImage('assets/goku-base.png'), loadImage('assets/goku-ki.png'), loadImage('assets/combat.png'),
       loadImage('assets/goku-damaged.png'), loadImage('assets/goku-kamehameha.png'),
       loadImage('assets/goku-senzu.png'),
-      training ? loadImage('assets/goku-ssj.png') : null,
-      loadImage(training ? 'assets/martial-arena.png' : namek ? 'assets/namek.png' : 'assets/raditz-field.png'),
+      training || selectedLevel?.powers.some((entry) => entry.sprite === 'gokuSsj')
+        ? loadImage('assets/goku-ssj.png') : null,
+      loadBackdrop(),
       raditzLevel ? loadImage('assets/raditz.png') : null,
       namek ? loadImage('assets/freeza-scout.png') : null,
+      loadRoster(),
     ]);
     landscapeArt = arena;
     const baseColumns = Array.from({ length: 6 }, (_, index) => Math.round(base.width * index / 5));

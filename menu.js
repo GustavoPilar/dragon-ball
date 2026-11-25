@@ -1,36 +1,4 @@
-const sagas = [
-  {
-    id: 'saiyajin', title: 'Saga Saiyajin', levels: [
-      { id: 'raditz', title: 'A chegada de Raditz', playable: true },
-      { id: 'treinamento', title: 'O treinamento com o Senhor Kaio' },
-      { id: 'nappa', title: 'O ataque de Nappa' },
-      { id: 'vegeta', title: 'O duelo contra Vegeta' },
-    ],
-  },
-  {
-    id: 'freeza', title: 'Saga Freeza', levels: [
-      { id: 'namek', title: 'As Esferas de Namek', playable: true },
-      { id: 'ginyu', title: 'As Forças Especiais Ginyu' },
-      { id: 'freeza', title: 'O confronto com Freeza' },
-    ],
-  },
-  {
-    id: 'androids-cell', title: 'Saga Androids/Cell', levels: [
-      { id: 'trunks', title: 'O aviso de Trunks' },
-      { id: 'androids', title: 'A chegada dos Androids' },
-      { id: 'cell', title: 'A ascensão de Cell' },
-      { id: 'jogos-de-cell', title: 'Os Jogos de Cell' },
-    ],
-  },
-  {
-    id: 'majin-buu', title: 'Saga Majin Buu', levels: [
-      { id: 'torneio', title: 'O Torneio de Artes Marciais' },
-      { id: 'babidi', title: 'A magia de Babidi' },
-      { id: 'majin-buu', title: 'O despertar de Majin Buu' },
-      { id: 'kid-buu', title: 'A batalha final contra Kid Buu' },
-    ],
-  },
-];
+const sagas = sagaLevels;
 
 const launch = new URLSearchParams(location.search);
 const training = launch.get('modo') === 'treino';

@@ -1,6 +1,6 @@
 # Dragon Ball
 
-Jogo web de luta com Goku. Sirva a pasta localmente com `python3 -m http.server 3000` e abra `http://localhost:3000`. Selecione **Continuar jogo** para escolher uma saga. **Iniciar jogo** e **Opções** serão implementados depois. Use `?modo=treino` no endereço para jogar a arena dos Cell Jr.
+Jogo web de luta com 23 fases jogáveis nas sagas Saiyajin, Freeza, Androids/Cell e Majin Buu. Sirva a pasta localmente com `python3 -m http.server 3000` e abra `http://localhost:3000`. Selecione **Continuar jogo** para escolher uma saga. **Iniciar jogo** e **Opções** ainda estão desativados. Use `?modo=treino` no endereço para jogar a arena dos Cell Jr.
 
 | Ação | Tela | Teclado |
 | --- | --- | --- |
@@ -14,11 +14,15 @@ Jogo web de luta com Goku. Sirva a pasta localmente com `python3 -m http.server 
 | Carregar ki | Segure Ki até 100% | Segure C |
 | Disparar uma esfera de ki | Toque em Poder | V |
 | Disparar Kamehameha | Toque em Kame | B |
-| Virar Super Saiyajin no treino | Toque em SSJ com o ki cheio | T |
+| Ativar forma especial | Toque no botão de forma quando ele aparecer | T |
 
 O jogo fica disponível com a tela na horizontal. O botão de tela cheia solicita o bloqueio da orientação quando o navegador oferece suporte.
 
-Na Saga Saiyajin, **A chegada de Raditz** começa com uma cena que pode ser avançada pelo diálogo ou pulada. Raditz tem 360 de vida, luta no chão e no ar e usa socos, chutes e disparos de ki. Seus ataques ficam mais rápidos abaixo de metade da vida. Derrote-o e alcance a saída à direita. Na campanha, a transformação em Super Saiyajin fica bloqueada até a futura luta contra Freeza.
+Na Saga Saiyajin, **A chegada de Raditz** começa com uma cena que pode ser avançada pelo diálogo ou pulada. Raditz tem 360 de vida, luta no chão e no ar e usa socos, chutes e disparos de ki. Seus ataques ficam mais rápidos abaixo de metade da vida. Derrote-o e alcance a saída à direita.
+
+A campanha alterna personagens conforme o confronto, incluindo Piccolo, Kuririn, Gohan, Vegeta, Trunks, Gotenks e Vegetto. Goku pode usar Kaioken antes de Freeza. O primeiro Super Saiyajin de Goku é liberado na forma final de Freeza. As formas especiais iniciais exigem 100 de ki. Evoluções seguintes exigem pelo menos 55 e só ficam disponíveis nas fases previstas.
+
+Cada cor na barra de vida de um chefe com várias formas representa uma forma. Ao esgotar a cor ativa, o chefe se transforma e começa o segmento seguinte com outros golpes, ritmo ou alcance. Freeza tem quatro formas e um segmento final de poder máximo.
 
 Na Saga Freeza, **As Esferas de Namek** traz duas ondas de patrulheiros. Derrote-os, siga até o extremo direito e toque em **Pegar as esferas** para reunir as sete. O menu marca as fases concluídas quando o navegador permite salvar o progresso.
 

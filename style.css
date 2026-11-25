@@ -97,6 +97,26 @@ meter::-moz-meter-bar { background: #db640d; }
 #boss-health { height: 12px; }
 #boss-health::-webkit-meter-optimum-value { background: #e05855; }
 #boss-health::-moz-meter-bar { background: #e05855; }
+#boss-health.segmented { position: absolute; width: 1px; height: 1px; clip-path: inset(50%); }
+#boss-segments:not([hidden]) {
+  display: flex;
+  gap: 3px;
+  height: 8px;
+  margin: 5px 0 4px;
+}
+#boss-segments > span { flex: 1; background: #604c60; border-radius: 2px; overflow: hidden; }
+#boss-segments > span > i { display: block; height: 100%; background: var(--segment); }
+#hero-form {
+  display: block;
+  margin-bottom: 2px;
+  color: #653800;
+  background: #ffe7a3;
+  border-radius: 4px;
+  padding: 2px 5px;
+  font-size: .67rem;
+  width: fit-content;
+}
+#hero-form[hidden] { display: none; }
 .boss-campaign #wave-status { top: max(62px, calc(env(safe-area-inset-top) + 49px)); }
 .boss-campaign #combat-notice { top: max(90px, calc(env(safe-area-inset-top) + 77px)); }
 .controls {
